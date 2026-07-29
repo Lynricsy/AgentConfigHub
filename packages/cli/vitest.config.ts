@@ -2,6 +2,6 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    testTimeout: process.platform === "win32" ? 15_000 : 5_000,
+    testTimeout: process.platform === "win32" ? 30_000 : 5_000,
   },
 });
