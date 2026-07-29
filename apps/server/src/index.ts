@@ -1,18 +1,28 @@
 import { access } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 
 import { openDatabase } from "./db/database.js";
 import { migrateDatabase } from "./db/migrate.js";
+import { registerBlobRoutes } from "./routes/blobs.js";
+import { loadMasterKey } from "./security/master-key.js";
+import { FileEncryptedBlobStore, type EncryptedBlobStore } from "./storage/encrypted-blob-store.js";
 
 const defaultWebRoot = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
-export function buildServer() {
+export interface ServerDependencies {
+  readonly blobStore?: EncryptedBlobStore;
+}
+
+export function buildServer(dependencies: ServerDependencies = {}) {
   const server = Fastify({ logger: true });
   const webRoot = process.env.AGENT_CONFIG_HUB_WEB_ROOT ?? defaultWebRoot;
   const serveWeb = process.env.NODE_ENV === "production";
+
+  if (dependencies.blobStore) registerBlobRoutes(server, dependencies.blobStore);
 
   if (serveWeb) {
     server.register(fastifyStatic, {
@@ -50,9 +60,12 @@ export function buildServer() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const database = openDatabase();
+  const dataDir = process.env.AGENT_CONFIG_HUB_DATA_DIR ?? resolve("data");
+  const masterKey = await loadMasterKey();
+  const database = openDatabase(dataDir);
   migrateDatabase(database);
-  const server = buildServer();
+  const blobStore = new FileEncryptedBlobStore(database, masterKey, dataDir);
+  const server = buildServer({ blobStore });
   server.addHook("onClose", async () => {
     database.native.close();
   });
