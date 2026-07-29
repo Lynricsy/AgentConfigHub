@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { chmod, lstat, mkdir, open, readFile, rename, rm } from "node:fs/promises";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import envPaths from "env-paths";
@@ -15,8 +15,6 @@ const LocalConfig = z.object({
   rootOverrides: z.partialRecord(TargetRootId, z.string()).default({}),
 }).strict();
 export type LocalConfig = z.infer<typeof LocalConfig>;
-
-const tightenedWindowsDirectories = new Set<string>();
 
 export interface LocalPaths {
   readonly configDirectory: string;
@@ -110,16 +108,9 @@ if ($actualSid.Value -ne $sid.Value -or
 
 export async function ensurePrivateDirectory(path: string): Promise<void> {
   await assertNotLink(path);
-  const created = await mkdir(path, { recursive: true, mode: 0o700 });
-  if (process.platform === "win32") {
-    const key = resolve(path).toLocaleLowerCase("en-US");
-    if (created !== undefined || !tightenedWindowsDirectories.has(key)) {
-      tightenWindowsAcl(path, true);
-      tightenedWindowsDirectories.add(key);
-    }
-  } else {
-    await chmod(path, 0o700);
-  }
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  if (process.platform === "win32") tightenWindowsAcl(path, true);
+  else await chmod(path, 0o700);
 }
 
 export async function writePrivateJson(path: string, value: unknown): Promise<void> {
