@@ -1,0 +1,24 @@
+{
+  "name": "agent-config-hub-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.0.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @agent-config-hub/server --filter @agent-config-hub/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm --filter @agent-config-hub/server test:integration",
+    "test:e2e": "pnpm --filter @agent-config-hub/web test:e2e",
+    "db:generate": "pnpm --filter @agent-config-hub/server db:generate",
+    "db:migrate": "pnpm --filter @agent-config-hub/server db:migrate"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^7.0.0",
+    "vitest": "^4.0.0"
+  }
+}

@@ -1,0 +1,38 @@
+AgentLogs/
+node_modules/
+.pnpm-store/
+.npm/
+*.tsbuildinfo
+*.log
+
+# Build and test output
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.artifacts/
+
+# Runtime persistence
+/data/
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.db-shm
+*.db-wal
+blobs/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

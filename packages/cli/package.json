@@ -1,0 +1,28 @@
+{
+  "name": "agent-config-hub",
+  "version": "0.1.0",
+  "description": "Pull-only CLI for AgentConfigHub",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agent-config-hub": "dist/index.js"
+  },
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@agent-config-hub/adapters": "workspace:*",
+    "@agent-config-hub/protocol": "workspace:*"
+  }
+}
