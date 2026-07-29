@@ -69,7 +69,12 @@ test("administers a configuration through release without retaining one-time sec
   await expect(page.getByText("assets/info.txt", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: /Releases/ }).click();
-  await page.getByLabel("Configuration").selectOption({ label: "E2E workstation" });
+  const configuration = page.getByLabel("Configuration");
+  const configurationId = await configuration.locator("option").filter({ hasText: "E2E workstation" }).getAttribute("value");
+  expect(configurationId).toBeTruthy();
+  await configuration.selectOption(configurationId!);
+  await expect(configuration).toHaveValue(configurationId!);
+  await expect(page.getByLabel("Release notes")).toBeVisible();
   await page.getByLabel("Release notes").fill("E2E release");
   await page.getByRole("button", { name: "Validate & publish immutable release" }).click();
   await expect(page.getByText("Current", { exact: true })).toBeVisible();
