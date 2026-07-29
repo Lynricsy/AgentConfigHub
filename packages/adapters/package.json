@@ -11,6 +11,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@agent-config-hub/protocol": "workspace:*"
+    "@agent-config-hub/protocol": "workspace:*",
+    "ajv": "^8.20.0",
+    "jsonc-parser": "^3.3.1",
+    "smol-toml": "^1.7.1",
+    "yaml": "^2.9.0"
   }
 }
