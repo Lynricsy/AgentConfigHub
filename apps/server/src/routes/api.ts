@@ -240,7 +240,8 @@ export function registerApiRoutes(server: FastifyInstance, dependencies: ApiDepe
   server.get("/api/v1/config-sets", { preHandler: requireAdmin }, async () => dependencies.database.native.prepare(`
     SELECT sets.id, sets.name, sets.slug, sets.enabled_agents AS enabledAgents,
       sets.draft_revision AS draftRevision, sets.current_release_id AS currentReleaseId,
-      current.draft_revision AS currentReleaseRevision
+      current.draft_revision AS currentReleaseRevision,
+      current.release_number AS currentReleaseNumber
     FROM config_sets sets
     LEFT JOIN releases current ON current.id = sets.current_release_id
     ORDER BY sets.name, sets.id
@@ -304,6 +305,7 @@ export function registerApiRoutes(server: FastifyInstance, dependencies: ApiDepe
       DEVICE_CODE_CONSUMED: 410,
       INVALID_CREDENTIALS: 401,
       INVALID_REQUEST: 400,
+      FST_ERR_CTP_BODY_TOO_LARGE: 413,
       ORIGIN_INVALID: 403,
       PASSWORD_TOO_SHORT: 400,
       RATE_LIMITED: 429,

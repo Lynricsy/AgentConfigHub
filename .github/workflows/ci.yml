@@ -20,3 +20,5 @@ jobs:
       - run: corepack pnpm install --frozen-lockfile
       - run: corepack pnpm typecheck
       - run: corepack pnpm test
+      - run: corepack pnpm --filter @agent-config-hub/web exec playwright install --with-deps chromium
+      - run: corepack pnpm test:e2e

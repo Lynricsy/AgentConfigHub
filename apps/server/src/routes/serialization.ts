@@ -10,6 +10,7 @@ const StoredConfigSet = z.object({
   draftRevision: z.number().int(),
   currentReleaseId: z.string().nullable(),
   currentReleaseRevision: z.number().int().nullable(),
+  currentReleaseNumber: z.number().int().positive().nullable(),
 });
 
 const StoredBoolean = z.union([z.literal(0), z.literal(1)]);

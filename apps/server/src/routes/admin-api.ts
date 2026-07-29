@@ -1,9 +1,16 @@
 import type { FastifyInstance, FastifyRequest, preHandlerHookHandler } from "fastify";
 import { z } from "zod";
 
+import {
+  ADAPTER_SCHEMA_SNAPSHOTS,
+  builtInAdapters,
+  getAdapter,
+  type FileFormat,
+} from "@agent-config-hub/adapters";
 import { AgentId, LogicalTarget } from "@agent-config-hub/protocol";
 
 import type { DatabaseContext } from "../db/database.js";
+import { scanInlineSecrets } from "../security/secret-replacement.js";
 import type { ConfigSetService } from "../services/config-set-service.js";
 import { AuthenticationError } from "../services/auth-service.js";
 import type { CredentialService } from "../services/credential-service.js";
@@ -29,6 +36,17 @@ function expectedResourceRevision(request: FastifyRequest): string {
   return value.slice(1, -1);
 }
 
+function inferFileFormat(relativePath: string): FileFormat {
+  const lower = relativePath.toLocaleLowerCase("en-US");
+  if (lower.endsWith(".jsonc")) return "jsonc";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".toml")) return "toml";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "yaml";
+  if (lower.endsWith(".md")) return "markdown";
+  if (lower.endsWith(".env") || lower.includes("dotenv")) return "dotenv";
+  return "text";
+}
+
 const ResourceFile = z.object({
   relativePath: z.string().min(1),
   blobSha256: Sha256,
@@ -44,6 +62,7 @@ const StoredDraftFile = z.object({
   mediaType: z.string(),
   utf8: z.union([z.literal(0), z.literal(1)]),
   executable: z.union([z.literal(0), z.literal(1)]),
+  size: z.number().int().nonnegative(),
 });
 const StoredResourceFile = z.object({
   resourceId: z.string(),
@@ -88,6 +107,42 @@ export function registerAdminApiRoutes(
 ): void {
   const protectedMutation = { preHandler: authorize };
 
+  server.get("/api/v1/adapters", protectedMutation, async () => builtInAdapters.map((adapter) => ({
+    id: adapter.id,
+    revision: adapter.revision,
+    roots: adapter.roots,
+    surfaces: adapter.surfaces,
+    schemaSnapshot: ADAPTER_SCHEMA_SNAPSHOTS[adapter.id],
+  })));
+  server.post("/api/v1/validate-file", {
+    ...protectedMutation,
+    bodyLimit: 3 * 1024 * 1024,
+  }, async (request) => {
+    assertOrigin(request);
+    const body = z.object({
+      agentId: AgentId,
+      target: LogicalTarget,
+      mediaType: z.string().min(1),
+      text: z.string().max(2 * 1024 * 1024),
+      executable: z.boolean(),
+    }).strict().parse(request.body);
+    const adapter = getAdapter(body.agentId);
+    const diagnostics = await adapter.validate({
+      agentId: body.agentId,
+      target: body.target,
+      mediaType: body.mediaType,
+      format: inferFileFormat(body.target.relativePath),
+      text: body.text,
+      executable: body.executable,
+    });
+    return {
+      diagnostics: [
+        ...diagnostics,
+        ...scanInlineSecrets(body.text).map((diagnostic) => ({ ...diagnostic, target: body.target })),
+      ],
+    };
+  });
+
   server.get<{ Params: { configSetId: string } }>(
     "/api/v1/config-sets/:configSetId",
     protectedMutation,
@@ -95,16 +150,22 @@ export function registerAdminApiRoutes(
       const configSet = dependencies.database.native.prepare(`
         SELECT sets.id, sets.name, sets.slug, sets.enabled_agents AS enabledAgents,
           sets.draft_revision AS draftRevision, sets.current_release_id AS currentReleaseId,
-          current.draft_revision AS currentReleaseRevision
+          current.draft_revision AS currentReleaseRevision,
+          current.release_number AS currentReleaseNumber
         FROM config_sets sets
         LEFT JOIN releases current ON current.id = sets.current_release_id
         WHERE sets.id = ?
       `).get(request.params.configSetId);
       if (!configSet) throw new Error("Configuration set does not exist.");
       const files = dependencies.database.native.prepare(`
-        SELECT id, agent_id AS agentId, root_id AS root, relative_path AS relativePath,
-          blob_sha256 AS blobSha256, media_type AS mediaType, utf8, executable
-        FROM draft_files WHERE config_set_id = ? ORDER BY agent_id, root_id, relative_path
+        SELECT files.id, files.agent_id AS agentId, files.root_id AS root,
+          files.relative_path AS relativePath, files.blob_sha256 AS blobSha256,
+          files.media_type AS mediaType, files.utf8, files.executable,
+          blobs.plaintext_size AS size
+        FROM draft_files files
+        JOIN blobs ON blobs.sha256 = files.blob_sha256
+        WHERE files.config_set_id = ?
+        ORDER BY files.agent_id, files.root_id, files.relative_path
       `).all(request.params.configSetId);
       const overlays = dependencies.database.native.prepare(`
         SELECT agent_id AS agentId, markdown FROM agent_instruction_overlays
