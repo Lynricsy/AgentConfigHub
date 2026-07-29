@@ -12,6 +12,18 @@ export interface ResourceFileInput {
   readonly executable: boolean;
 }
 
+export class ResourceRevisionConflictError extends Error {
+  readonly code = "REVISION_CONFLICT";
+
+  constructor(
+    readonly expectedRevision: string,
+    readonly actualRevision: string,
+  ) {
+    super(`Expected resource revision ${expectedRevision}, received ${actualRevision}.`);
+    this.name = "ResourceRevisionConflictError";
+  }
+}
+
 export class ResourceService {
   readonly #database: DatabaseContext;
 
@@ -52,7 +64,9 @@ export class ResourceService {
         WHERE resources.id = ?
       `).get(input.resourceId) as { revisionId: string; revisionNumber: number } | undefined;
       if (!current) throw new Error(`Resource ${input.resourceId} does not exist.`);
-      if (current.revisionId !== input.expectedRevisionId) throw new Error("REVISION_CONFLICT");
+      if (current.revisionId !== input.expectedRevisionId) {
+        throw new ResourceRevisionConflictError(input.expectedRevisionId, current.revisionId);
+      }
       const revisionId = ulid();
       const now = Date.now();
       this.#insertRevision(input.resourceId, revisionId, current.revisionNumber + 1, input.files, now);

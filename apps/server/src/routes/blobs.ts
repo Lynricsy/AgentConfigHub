@@ -1,4 +1,4 @@
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 
 import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 
@@ -16,31 +16,35 @@ export function registerBlobRoutes(
   const mutationProtection = authorizeMutation
     ? { preHandler: authorizeMutation }
     : protection;
-  server.addContentTypeParser("*", (_request, payload, done) => {
-    done(null, payload);
-  });
-
-  server.put("/api/v1/blobs", {
-    ...mutationProtection,
-    bodyLimit: Number.MAX_SAFE_INTEGER,
-  }, async (request, reply) => {
-    const mediaType = request.headers["content-type"]?.split(";", 1)[0];
-    const descriptor = await blobStore.put(request.body as Readable, mediaType);
-    return reply.code(201).send({
-      ...descriptor,
-      monacoEligible: descriptor.size <= MONACO_LIMIT && (
-        descriptor.mediaType?.startsWith("text/") === true ||
-        descriptor.mediaType === "application/json" ||
-        descriptor.mediaType === "application/yaml" ||
-        descriptor.mediaType === "application/toml"
-      ),
+  server.register(async (scope) => {
+    scope.removeContentTypeParser(["application/json", "text/plain"]);
+    scope.addContentTypeParser("*", (_request, payload, done) => {
+      done(null, payload);
     });
-  });
 
-  server.get<{ Params: { sha256: string } }>("/api/v1/blobs/:sha256", protection, async (request, reply) => {
-    return reply
-      .header("Cache-Control", "no-store")
-      .type("application/octet-stream")
-      .send(await blobStore.open(request.params.sha256));
+    scope.put("/api/v1/blobs", {
+      ...mutationProtection,
+      bodyLimit: Number.MAX_SAFE_INTEGER,
+    }, async (request, reply) => {
+      if (!(request.body instanceof Readable)) throw new TypeError("Blob request body must be a readable stream.");
+      const mediaType = request.headers["content-type"]?.split(";", 1)[0];
+      const descriptor = await blobStore.put(request.body, mediaType);
+      return reply.code(201).send({
+        ...descriptor,
+        monacoEligible: descriptor.size <= MONACO_LIMIT && (
+          descriptor.mediaType?.startsWith("text/") === true ||
+          descriptor.mediaType === "application/json" ||
+          descriptor.mediaType === "application/yaml" ||
+          descriptor.mediaType === "application/toml"
+        ),
+      });
+    });
+
+    scope.get<{ Params: { sha256: string } }>("/api/v1/blobs/:sha256", protection, async (request, reply) => {
+      return reply
+        .header("Cache-Control", "no-store")
+        .type("application/octet-stream")
+        .send(await blobStore.open(request.params.sha256));
+    });
   });
 }
