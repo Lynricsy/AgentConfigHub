@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 
+import { openDatabase } from "./db/database.js";
+import { migrateDatabase } from "./db/migrate.js";
+
 const defaultWebRoot = fileURLToPath(new URL("../../web/dist", import.meta.url));
 
 export function buildServer() {
@@ -47,9 +50,20 @@ export function buildServer() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const database = openDatabase();
+  migrateDatabase(database);
   const server = buildServer();
-  await server.listen({
-    host: process.env.HOST ?? "127.0.0.1",
-    port: Number(process.env.PORT ?? 3000),
+  server.addHook("onClose", async () => {
+    database.native.close();
   });
+
+  try {
+    await server.listen({
+      host: process.env.HOST ?? "127.0.0.1",
+      port: Number(process.env.PORT ?? 3000),
+    });
+  } catch (error) {
+    database.native.close();
+    throw error;
+  }
 }
