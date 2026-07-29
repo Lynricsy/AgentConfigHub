@@ -84,13 +84,21 @@ if ($actualSid.Value -ne $sid.Value -or
   throw "ACL verification failed."
 }
 `;
+  const environment: NodeJS.ProcessEnv = {
+    ...process.env,
+    AGCH_ACL_PATH: path,
+    AGCH_ACL_DIRECTORY: directory ? "1" : "0",
+  };
+  for (const name of Object.keys(environment)) {
+    if (name.toLowerCase() === "psmodulepath") delete environment[name];
+  }
   const result = spawnSync(
     "powershell.exe",
     ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
     {
       encoding: "utf8",
       windowsHide: true,
-      env: { ...process.env, AGCH_ACL_PATH: path, AGCH_ACL_DIRECTORY: directory ? "1" : "0" },
+      env: environment,
     },
   );
   if (result.status !== 0) {
