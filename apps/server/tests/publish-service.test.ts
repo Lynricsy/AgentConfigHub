@@ -183,7 +183,13 @@ describe("PublishService", () => {
     database.native.prepare("UPDATE secret_slots SET name = 'RENAMED', default_credential_id = ? WHERE id = 'slot-1'")
       .run(ompCredential.id);
     database.native.prepare("DELETE FROM secret_agent_overrides WHERE secret_slot_id = 'slot-1'").run();
-    const rollback = await publish.rollback(configSet.id, release1.releaseId);
+    const beforeRollback = database.native.prepare(
+      "SELECT draft_revision AS revision FROM config_sets WHERE id = ?",
+    ).get(configSet.id) as { revision: number };
+    await expect(
+      publish.rollback(configSet.id, release1.releaseId, beforeRollback.revision - 1),
+    ).rejects.toMatchObject({ code: "REVISION_CONFLICT" });
+    const rollback = await publish.rollback(configSet.id, release1.releaseId, beforeRollback.revision);
     expect(rollback.releaseNumber).toBe(5);
     const rollbackRevisions = database.native.prepare(`
       SELECT sets.draft_revision AS configRevision, releases.draft_revision AS releaseRevision

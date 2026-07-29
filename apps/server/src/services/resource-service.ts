@@ -89,6 +89,19 @@ export class ResourceService {
     }).revision;
   }
 
+  deselectForConfigSet(input: {
+    configSetId: string;
+    expectedRevision: number;
+    resourceId: string;
+  }): number {
+    return mutateDraft(this.#database, input.configSetId, input.expectedRevision, (connection) => {
+      const deleted = connection.prepare(
+        "DELETE FROM config_set_resources WHERE config_set_id = ? AND resource_id = ?",
+      ).run(input.configSetId, input.resourceId);
+      if (deleted.changes !== 1) throw new Error("Resource selection does not exist.");
+    }).revision;
+  }
+
   #insertRevision(
     resourceId: string,
     revisionId: string,

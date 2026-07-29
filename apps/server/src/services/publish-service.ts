@@ -523,7 +523,11 @@ export class PublishService {
     };
   }
 
-  async rollback(configSetId: string, sourceReleaseId: string): Promise<{ releaseId: string; releaseNumber: number }> {
+  async rollback(
+    configSetId: string,
+    sourceReleaseId: string,
+    expectedDraftRevision: number,
+  ): Promise<{ releaseId: string; releaseNumber: number }> {
     const frozenOverlays = this.#database.native.prepare(`
       SELECT agent_id AS agentId, template_blob_sha256 AS blobSha256
       FROM release_source_files
@@ -535,6 +539,10 @@ export class PublishService {
     })));
 
     return this.#database.native.transaction(() => {
+      const current = this.#configSet(configSetId);
+      if (current.draftRevision !== expectedDraftRevision) {
+        throw new RevisionConflictError(expectedDraftRevision, current.draftRevision);
+      }
       const source = this.#database.native.prepare(`
         SELECT release_number AS releaseNumber, enabled_agents AS enabledAgents
         FROM releases WHERE id = ? AND config_set_id = ?
@@ -545,7 +553,7 @@ export class PublishService {
       ).get(configSetId) as { number: number };
       const releaseId = ulid();
       const now = Date.now();
-      const restoredDraftRevision = this.#configSet(configSetId).draftRevision + 1;
+      const restoredDraftRevision = expectedDraftRevision + 1;
       this.#database.native.prepare(`
         INSERT INTO releases (
           id, config_set_id, release_number, draft_revision, enabled_agents,

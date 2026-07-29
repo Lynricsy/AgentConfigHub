@@ -82,4 +82,45 @@ export class ConfigSetService {
       `).run(ulid(), input.configSetId, input.agentId, input.markdown, Date.now());
     }).revision;
   }
+
+  update(input: {
+    configSetId: string;
+    expectedRevision: number;
+    name: string;
+    enabledAgents: readonly AgentId[];
+  }): number {
+    return mutateDraft(this.#database, input.configSetId, input.expectedRevision, (connection) => {
+      connection.prepare("UPDATE config_sets SET name = ?, enabled_agents = ? WHERE id = ?")
+        .run(input.name, JSON.stringify([...new Set(input.enabledAgents)]), input.configSetId);
+    }).revision;
+  }
+
+  deleteFile(input: {
+    configSetId: string;
+    expectedRevision: number;
+    agentId: AgentId;
+    target: LogicalTarget;
+  }): number {
+    assertAllowedTarget(getAdapter(input.agentId), input.target);
+    return mutateDraft(this.#database, input.configSetId, input.expectedRevision, (connection) => {
+      const deleted = connection.prepare(`
+        DELETE FROM draft_files
+        WHERE config_set_id = ? AND agent_id = ? AND root_id = ? AND relative_path = ?
+      `).run(input.configSetId, input.agentId, input.target.root, input.target.relativePath);
+      if (deleted.changes !== 1) throw new Error("Draft file does not exist.");
+    }).revision;
+  }
+
+  deleteInstructionOverlay(input: {
+    configSetId: string;
+    expectedRevision: number;
+    agentId: AgentId;
+  }): number {
+    return mutateDraft(this.#database, input.configSetId, input.expectedRevision, (connection) => {
+      const deleted = connection.prepare(
+        "DELETE FROM agent_instruction_overlays WHERE config_set_id = ? AND agent_id = ?",
+      ).run(input.configSetId, input.agentId);
+      if (deleted.changes !== 1) throw new Error("Instruction overlay does not exist.");
+    }).revision;
+  }
 }

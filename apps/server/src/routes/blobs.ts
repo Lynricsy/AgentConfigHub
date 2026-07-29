@@ -1,17 +1,27 @@
 import type { Readable } from "node:stream";
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, preHandlerHookHandler } from "fastify";
 
 import type { EncryptedBlobStore } from "../storage/encrypted-blob-store.js";
 
 const MONACO_LIMIT = 2 * 1024 * 1024;
 
-export function registerBlobRoutes(server: FastifyInstance, blobStore: EncryptedBlobStore): void {
+export function registerBlobRoutes(
+  server: FastifyInstance,
+  blobStore: EncryptedBlobStore,
+  authorize?: preHandlerHookHandler,
+  authorizeMutation?: preHandlerHookHandler,
+): void {
+  const protection = authorize ? { preHandler: authorize } : {};
+  const mutationProtection = authorizeMutation
+    ? { preHandler: authorizeMutation }
+    : protection;
   server.addContentTypeParser("*", (_request, payload, done) => {
     done(null, payload);
   });
 
   server.put("/api/v1/blobs", {
+    ...mutationProtection,
     bodyLimit: Number.MAX_SAFE_INTEGER,
   }, async (request, reply) => {
     const mediaType = request.headers["content-type"]?.split(";", 1)[0];
@@ -27,7 +37,7 @@ export function registerBlobRoutes(server: FastifyInstance, blobStore: Encrypted
     });
   });
 
-  server.get<{ Params: { sha256: string } }>("/api/v1/blobs/:sha256", async (request, reply) => {
+  server.get<{ Params: { sha256: string } }>("/api/v1/blobs/:sha256", protection, async (request, reply) => {
     return reply
       .header("Cache-Control", "no-store")
       .type("application/octet-stream")
