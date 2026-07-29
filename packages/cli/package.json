@@ -5,9 +5,9 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "agent-config-hub": "dist/index.js"
+    "agent-config-hub": "dist/index.cjs"
   },
-  "exports": "./dist/index.js",
+  "exports": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
@@ -17,12 +17,16 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node24 --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"
   },
-  "dependencies": {
+  "devDependencies": {
     "@agent-config-hub/adapters": "workspace:*",
-    "@agent-config-hub/protocol": "workspace:*"
+    "@agent-config-hub/protocol": "workspace:*",
+    "env-paths": "^4.0.0",
+    "esbuild": "^0.28.1",
+    "open": "^11.0.0",
+    "zod": "^4.4.3"
   }
 }

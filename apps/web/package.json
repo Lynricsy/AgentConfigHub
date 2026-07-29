@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests src",
-    "test:e2e": "playwright test"
+    "test:e2e": "pnpm --dir ../.. build && playwright test"
   },
   "dependencies": {
     "@agent-config-hub/protocol": "workspace:*",

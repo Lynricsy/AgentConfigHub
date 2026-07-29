@@ -16,31 +16,24 @@ export default defineConfig({
   reporter: process.env.CI ? "dot" : "list",
   globalSetup: "./tests/e2e/global-setup.ts",
   use: {
-    baseURL: "http://127.0.0.1:5173",
+    baseURL: "http://127.0.0.1:3000",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     launchOptions: {
       ...(systemChromium ? { executablePath: systemChromium } : {}),
     },
   },
-  webServer: [
-    {
-      command: "pnpm --dir ../.. --filter @agent-config-hub/server dev",
-      url: "http://127.0.0.1:3000/api/v1/health",
-      timeout: 120_000,
-      reuseExistingServer: false,
-      env: {
-        AGENT_CONFIG_HUB_DATA_DIR: dataDirectory,
-        AGENT_CONFIG_HUB_MASTER_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-        AGENT_CONFIG_HUB_PUBLIC_URL: "http://127.0.0.1:3000",
-        AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN: "playwright-setup-code",
-      },
+  webServer: {
+    command: "pnpm --dir ../.. --filter @agent-config-hub/server start",
+    url: "http://127.0.0.1:3000/api/v1/health",
+    timeout: 120_000,
+    reuseExistingServer: false,
+    env: {
+      NODE_ENV: "production",
+      AGENT_CONFIG_HUB_DATA_DIR: dataDirectory,
+      AGENT_CONFIG_HUB_MASTER_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      AGENT_CONFIG_HUB_PUBLIC_URL: "http://127.0.0.1:3000",
+      AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN: "playwright-setup-code",
     },
-    {
-      command: "pnpm dev --host 127.0.0.1",
-      url: "http://127.0.0.1:5173",
-      timeout: 120_000,
-      reuseExistingServer: false,
-    },
-  ],
+  },
 });
