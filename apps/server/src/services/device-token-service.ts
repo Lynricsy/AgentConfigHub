@@ -24,6 +24,7 @@ export class DeviceTokenService {
   readonly #publicUrl: string;
   readonly #clock: () => number;
   readonly #requests = new Map<string, number[]>();
+  #lastRatePrune = 0;
 
   constructor(database: DatabaseContext, publicUrl: string, clock: () => number = Date.now) {
     this.#database = database;
@@ -33,6 +34,7 @@ export class DeviceTokenService {
 
   createAuthorization(input: { deviceName: string; cliVersion: string; ip: string }) {
     const now = this.#clock();
+    this.#pruneRateLimits(now);
     const attempts = (this.#requests.get(input.ip) ?? []).filter((attempt) => attempt >= now - 60_000);
     if (attempts.length >= 10) throw new AuthenticationError("RATE_LIMITED", "Too many device authorization requests.");
     const pending = this.#database.native.prepare(`
@@ -78,6 +80,7 @@ export class DeviceTokenService {
   poll(deviceCode: string, ip: string): string {
     const now = this.#clock();
     const attempts = (this.#pollRequests.get(ip) ?? []).filter((attempt) => attempt >= now - 60_000);
+    this.#pruneRateLimits(now);
     if (attempts.length >= 120) throw new AuthenticationError("RATE_LIMITED", "Too many device token polls.");
     attempts.push(now);
     this.#pollRequests.set(ip, attempts);
@@ -155,12 +158,38 @@ export class DeviceTokenService {
     })();
   }
 
+  rateLimitEntryCounts(): { authorizationIps: number; pollIps: number; pendingCodes: number } {
+    return {
+      authorizationIps: this.#requests.size,
+      pollIps: this.#pollRequests.size,
+      pendingCodes: this.#pendingPolls.size,
+    };
+  }
+
   list() {
     return this.#database.native.prepare(`
       SELECT id, kind, label, token_prefix AS prefix, created_at AS createdAt,
         last_used_at AS lastUsedAt, revoked_at AS revokedAt
       FROM pull_tokens ORDER BY created_at DESC
     `).all();
+  }
+
+  #pruneRateLimits(now: number): void {
+    if (now - this.#lastRatePrune < 60_000) return;
+    this.#lastRatePrune = now;
+    for (const [ip, attempts] of this.#requests) {
+      const current = attempts.filter((attempt) => attempt >= now - 60_000);
+      if (current.length === 0) this.#requests.delete(ip);
+      else this.#requests.set(ip, current);
+    }
+    for (const [ip, attempts] of this.#pollRequests) {
+      const current = attempts.filter((attempt) => attempt >= now - 60_000);
+      if (current.length === 0) this.#pollRequests.delete(ip);
+      else this.#pollRequests.set(ip, current);
+    }
+    for (const [deviceCodeHash, lastPoll] of this.#pendingPolls) {
+      if (lastPoll < now - DEVICE_CODE_TTL_MS) this.#pendingPolls.delete(deviceCodeHash);
+    }
   }
 
   #audit(kind: string, subjectId: string | null, label: string | null = null): void {
