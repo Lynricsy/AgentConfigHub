@@ -23,25 +23,34 @@ AgentConfigHub 是面向个人部署的单实例配置控制平面。服务端�
 
 ## 使用 Docker Compose 自托管
 
-需要 Docker Compose v2；非本机回环部署还需要负责 HTTPS 终止的反向代理。
+需要 Docker Compose v2；非本机回环部署还需要负责 HTTPS 终止的反向代理。公开 GHCR 镜像支持 `linux/amd64` 与 `linux/arm64`。
 
 ```bash
+curl -fsSLO https://raw.githubusercontent.com/Lynricsy/AgentConfigHub/main/compose.example.yml
 export AGENT_CONFIG_HUB_PUBLIC_URL=https://agents.example.com
 export AGENT_CONFIG_HUB_MASTER_KEY="$(openssl rand -base64 32)"
-docker compose up --build -d
+docker compose -f compose.example.yml up -d
+```
+
+示例默认拉取 `ghcr.io/lynricsy/agentconfighub:edge`，并把服务绑定到 `127.0.0.1:3000`。只有服务确实需要越过本机反向代理监听时，才应覆盖 `AGENT_CONFIG_HUB_BIND_ADDRESS`。`edge` 是可变标签；生产环境若要求可复现部署，应设置：
+
+```bash
+export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:2e9ad232f269c177efe9fecd590035b8dbe1e1c5b79cc1b59ba45c242759fbf5'
 ```
 
 一次性 `initialize-data` 服务会先为非 root 运行时 UID `10001` 准备 `${AGENT_CONFIG_HUB_DATA_DIR:-./data}`；随后应用容器以只读根文件系统、无 Linux capability 的方式运行。请同时备份数据目录与主密钥；丢失主密钥后，加密凭据和 Blob 无法恢复。
 
-本机评估允许 `http://127.0.0.1:<port>`；所有非回环公开 URL 必须使用 HTTPS。若反向代理提供转发头，请把 `AGENT_CONFIG_HUB_TRUST_PROXY` 设置为逗号分隔的明确 IP/CIDR 白名单，绝不能信任任意代理。
+如需从本地源码构建，请改用 `compose.yaml` 执行 `docker compose up --build -d`。本机评估允许 `http://127.0.0.1:<port>`；所有非回环公开 URL 必须使用 HTTPS。若反向代理提供转发头，请把 `AGENT_CONFIG_HUB_TRUST_PROXY` 设置为逗号分隔的明确 IP/CIDR 白名单，绝不能信任任意代理。
 
 | 环境变量 | 用途 |
 | --- | --- |
+| `AGENT_CONFIG_HUB_IMAGE` | 可选 GHCR 标签或摘要；默认使用 `edge` |
 | `AGENT_CONFIG_HUB_PUBLIC_URL` | 必填规范 URL；除回环外必须 HTTPS |
 | `AGENT_CONFIG_HUB_MASTER_KEY` | 必填 Base64 编码 32 字节主密钥 |
 | `AGENT_CONFIG_HUB_DATA_DIR` | Compose 宿主机绑定路径；默认 `./data` |
 | `AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN` | 可选首次初始化码 |
 | `AGENT_CONFIG_HUB_TRUST_PROXY` | 可选明确代理 IP/CIDR 列表 |
+| `AGENT_CONFIG_HUB_BIND_ADDRESS` | 宿主机绑定地址；默认 `127.0.0.1` |
 | `AGENT_CONFIG_HUB_PORT` | Compose 暴露的宿主机端口；默认 `3000` |
 
 ## CLI

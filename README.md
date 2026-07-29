@@ -23,25 +23,34 @@ AI coding agents use different files, roots, formats, and authentication convent
 
 ## Self-host with Docker Compose
 
-Requirements: Docker with Compose v2 and a reverse proxy for non-loopback deployments.
+Requirements: Docker with Compose v2 and a reverse proxy for non-loopback deployments. The public GHCR image supports `linux/amd64` and `linux/arm64`.
 
 ```bash
+curl -fsSLO https://raw.githubusercontent.com/Lynricsy/AgentConfigHub/main/compose.example.yml
 export AGENT_CONFIG_HUB_PUBLIC_URL=https://agents.example.com
 export AGENT_CONFIG_HUB_MASTER_KEY="$(openssl rand -base64 32)"
-docker compose up --build -d
+docker compose -f compose.example.yml up -d
+```
+
+The example pulls `ghcr.io/lynricsy/agentconfighub:edge` and binds the service to `127.0.0.1:3000` by default. Override `AGENT_CONFIG_HUB_BIND_ADDRESS` only when the service must listen beyond the local reverse proxy. `edge` is mutable; reproducible production deployments should set:
+
+```bash
+export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:2e9ad232f269c177efe9fecd590035b8dbe1e1c5b79cc1b59ba45c242759fbf5'
 ```
 
 The one-shot `initialize-data` service prepares `${AGENT_CONFIG_HUB_DATA_DIR:-./data}` for the non-root runtime UID `10001`; the application container then runs read-only with all Linux capabilities dropped. Preserve both the data directory and master key. Losing the key makes encrypted credentials and blobs unrecoverable.
 
-For local-only evaluation, `http://127.0.0.1:<port>` is accepted. Every non-loopback public URL must use HTTPS. If a reverse proxy supplies forwarding headers, set `AGENT_CONFIG_HUB_TRUST_PROXY` to an explicit comma-separated IP/CIDR allowlist, never a blanket trust value.
+For a local source build instead, use `docker compose up --build -d` with `compose.yaml`. Local-only evaluation accepts `http://127.0.0.1:<port>`; every non-loopback public URL must use HTTPS. If a reverse proxy supplies forwarding headers, set `AGENT_CONFIG_HUB_TRUST_PROXY` to an explicit comma-separated IP/CIDR allowlist, never a blanket trust value.
 
 | Environment variable | Purpose |
 | --- | --- |
+| `AGENT_CONFIG_HUB_IMAGE` | Optional GHCR tag or digest; defaults to `edge` |
 | `AGENT_CONFIG_HUB_PUBLIC_URL` | Required canonical URL; HTTPS except loopback |
 | `AGENT_CONFIG_HUB_MASTER_KEY` | Required base64-encoded 32-byte master key |
 | `AGENT_CONFIG_HUB_DATA_DIR` | Host bind path in Compose; defaults to `./data` |
 | `AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN` | Optional first-run setup code |
 | `AGENT_CONFIG_HUB_TRUST_PROXY` | Optional explicit proxy IP/CIDR list |
+| `AGENT_CONFIG_HUB_BIND_ADDRESS` | Host bind address; defaults to `127.0.0.1` |
 | `AGENT_CONFIG_HUB_PORT` | Host port exposed by Compose; defaults to `3000` |
 
 ## CLI
