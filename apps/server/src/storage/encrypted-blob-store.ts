@@ -20,6 +20,7 @@ export interface BlobDescriptor {
 export interface EncryptedBlobStore {
   put(source: Readable, mediaType?: string): Promise<BlobDescriptor>;
   open(sha256: string): Promise<Readable>;
+  verify(sha256: string): Promise<BlobDescriptor>;
   deleteIfUnreferenced(sha256: string, olderThan: Date): Promise<boolean>;
 }
 
@@ -164,6 +165,20 @@ export class FileEncryptedBlobStore implements EncryptedBlobStore {
     outputDecipher.setAAD(contentAad(identity));
     outputDecipher.setAuthTag(Buffer.from(row.contentTag, "base64"));
     return createReadStream(encryptedPath).pipe(outputDecipher);
+  }
+
+  async verify(sha256: string): Promise<BlobDescriptor> {
+    const stream = await this.open(sha256);
+    for await (const _chunk of stream) {
+      // 丢弃已认证明文；保持常量内存。
+    }
+    const row = this.#find(sha256);
+    if (!row) throw new Error(`Blob ${sha256} does not exist.`);
+    return {
+      sha256,
+      size: row.plaintextSize,
+      mediaType: row.mediaType ?? undefined,
+    };
   }
 
   async deleteIfUnreferenced(sha256: string, olderThan: Date): Promise<boolean> {

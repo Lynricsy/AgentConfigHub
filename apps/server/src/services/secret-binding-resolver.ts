@@ -8,6 +8,8 @@ export interface ResolvedSecret {
   readonly value: string;
   readonly credentialId: string;
   readonly credentialRevisionId: string;
+  readonly bindingSource: "default" | "override";
+  readonly pinnedRevision: boolean;
 }
 
 export interface SecretBindingResolution {
@@ -18,7 +20,9 @@ export interface SecretBindingResolution {
 interface BindingRow {
   slotName: string;
   defaultCredentialId: string | null;
+  defaultCredentialRevisionId: string | null;
   overrideCredentialId: string | null;
+  overrideCredentialRevisionId: string | null;
 }
 
 interface RevisionRow {
@@ -58,13 +62,18 @@ export class SecretBindingResolver {
           SELECT
             slots.name AS slotName,
             slots.default_credential_id AS defaultCredentialId,
-            overrides.credential_id AS overrideCredentialId
+            slots.default_credential_revision_id AS defaultCredentialRevisionId,
+            overrides.credential_id AS overrideCredentialId,
+            overrides.credential_revision_id AS overrideCredentialRevisionId
           FROM secret_slots slots
           LEFT JOIN secret_agent_overrides overrides
             ON overrides.secret_slot_id = slots.id AND overrides.agent_id = ?
           WHERE slots.config_set_id = ? AND slots.name = ?
         `).get(agent, configSetId, slot) as BindingRow | undefined;
         const credentialId = binding?.overrideCredentialId ?? binding?.defaultCredentialId;
+        const credentialRevisionId = binding?.overrideCredentialId
+          ? binding.overrideCredentialRevisionId
+          : binding?.defaultCredentialRevisionId;
         if (!credentialId) {
           diagnostics.push({
             code: "SECRET_BINDING_MISSING",
@@ -73,7 +82,7 @@ export class SecretBindingResolver {
           });
           continue;
         }
-        const revision = this.#currentRevision(credentialId);
+        const revision = this.#revision(credentialId, credentialRevisionId ?? undefined);
         const plaintext = decryptBuffer(
           Buffer.from(revision.encryptedValue, "base64"),
           this.#masterKey,
@@ -87,6 +96,8 @@ export class SecretBindingResolver {
           value: plaintext.toString("utf8"),
           credentialId,
           credentialRevisionId: revision.id,
+          bindingSource: binding?.overrideCredentialId ? "override" : "default",
+          pinnedRevision: credentialRevisionId !== null && credentialRevisionId !== undefined,
         };
         const usedBy = credentialAgents.get(credentialId) ?? new Set<AgentId>();
         usedBy.add(agent);
@@ -105,7 +116,7 @@ export class SecretBindingResolver {
     return { byAgent, diagnostics };
   }
 
-  #currentRevision(credentialId: string): RevisionRow {
+  #revision(credentialId: string, revisionId?: string): RevisionRow {
     const revision = this.#database.native.prepare(`
       SELECT
         revisions.id,
@@ -121,9 +132,9 @@ export class SecretBindingResolver {
         revisions.plaintext_sha256 AS plaintextSha256,
         revisions.plaintext_size AS plaintextSize
       FROM credentials
-      JOIN credential_revisions revisions ON revisions.id = credentials.current_revision_id
-      WHERE credentials.id = ?
-    `).get(credentialId) as RevisionRow | undefined;
+      JOIN credential_revisions revisions ON revisions.credential_id = credentials.id
+      WHERE credentials.id = ? AND revisions.id = COALESCE(?, credentials.current_revision_id)
+    `).get(credentialId, revisionId ?? null) as RevisionRow | undefined;
     if (!revision) throw new Error(`Credential ${credentialId} has no current revision.`);
     return revision;
   }

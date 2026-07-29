@@ -44,6 +44,19 @@ function rangeAt(text: string, offset: number, length: number): NonNullable<Diag
   };
 }
 
+export function scanInlineSecrets(text: string): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const pattern of inlineSecretPatterns) {
+    for (const match of text.matchAll(pattern)) diagnostics.push({
+      code: "INLINE_SECRET_DETECTED",
+      severity: "error",
+      message: "A high-confidence inline secret was detected; use a credential slot instead.",
+      range: rangeAt(text, match.index, match[0].length),
+    });
+  }
+  return diagnostics;
+}
+
 function escapedSecret(value: string): string {
   return JSON.stringify(value);
 }
@@ -208,15 +221,8 @@ export async function replaceSecretScalars(
       range: rangeAt(text, start, match[0].length),
     });
   }
+  diagnostics.push(...scanInlineSecrets(text));
 
-  for (const pattern of inlineSecretPatterns) {
-    for (const match of text.matchAll(pattern)) diagnostics.push({
-      code: "INLINE_SECRET_DETECTED",
-      severity: "error",
-      message: "A high-confidence inline secret was detected; use a credential slot instead.",
-      range: rangeAt(text, match.index, match[0].length),
-    });
-  }
 
   let output = text;
   for (const replacement of replacements.toSorted((left, right) => right.start - left.start)) {

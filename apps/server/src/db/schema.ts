@@ -135,6 +135,7 @@ export const resourceRevisionFiles = sqliteTable("resource_revision_files", {
 export const configSetResources = sqliteTable("config_set_resources", {
   configSetId: text("config_set_id").notNull().references(() => configSets.id, { onDelete: "cascade" }),
   resourceId: text("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  resourceRevisionId: text("resource_revision_id").references(() => resourceRevisions.id),
   sortOrder: integer("sort_order", { mode: "number" }).notNull(),
   selectedAgents: text("selected_agents", { mode: "json" }).$type<string[]>().notNull(),
 }, (table) => [primaryKey({ columns: [table.configSetId, table.resourceId] })]);
@@ -170,6 +171,7 @@ export const secretSlots = sqliteTable("secret_slots", {
   configSetId: text("config_set_id").notNull().references(() => configSets.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   defaultCredentialId: text("default_credential_id").references(() => credentials.id),
+  defaultCredentialRevisionId: text("default_credential_revision_id").references(() => credentialRevisions.id),
   createdAt: timestamp("created_at"),
   updatedAt: timestamp("updated_at"),
 }, (table) => [uniqueIndex("secret_slots_set_name_idx").on(table.configSetId, table.name)]);
@@ -178,6 +180,7 @@ export const secretAgentOverrides = sqliteTable("secret_agent_overrides", {
   secretSlotId: text("secret_slot_id").notNull().references(() => secretSlots.id, { onDelete: "cascade" }),
   agentId: text("agent_id").notNull(),
   credentialId: text("credential_id").notNull().references(() => credentials.id),
+  credentialRevisionId: text("credential_revision_id").references(() => credentialRevisions.id),
 }, (table) => [primaryKey({ columns: [table.secretSlotId, table.agentId] })]);
 
 export const releases = sqliteTable("releases", {
@@ -219,7 +222,9 @@ export const releaseFiles = sqliteTable("release_files", {
 export const releaseSecretBindings = sqliteTable("release_secret_bindings", {
   releaseId: text("release_id").notNull().references(() => releases.id, { onDelete: "cascade" }),
   secretSlotId: text("secret_slot_id").notNull().references(() => secretSlots.id),
+  slotName: text("slot_name").notNull(),
   agentId: text("agent_id").notNull(),
+  bindingSource: text("binding_source", { enum: ["default", "override"] }).notNull(),
   credentialRevisionId: text("credential_revision_id").notNull().references(() => credentialRevisions.id),
 }, (table) => [primaryKey({ columns: [table.releaseId, table.secretSlotId, table.agentId] })]);
 
