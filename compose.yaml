@@ -1,0 +1,50 @@
+services:
+  initialize-data:
+    build:
+      context: .
+    image: agent-config-hub:local
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown -R 10001:10001 /data && chmod 0700 /data"]
+    restart: "no"
+    read_only: true
+    volumes:
+      - "${AGENT_CONFIG_HUB_DATA_DIR:-./data}:/data"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - FOWNER
+      - DAC_OVERRIDE
+
+  agent-config-hub:
+    build:
+      context: .
+    image: agent-config-hub:local
+    init: true
+    restart: unless-stopped
+    read_only: true
+    depends_on:
+      initialize-data:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      AGENT_CONFIG_HUB_DATA_DIR: /data
+      AGENT_CONFIG_HUB_PUBLIC_URL: ${AGENT_CONFIG_HUB_PUBLIC_URL:?Set the public HTTPS URL}
+      AGENT_CONFIG_HUB_MASTER_KEY: ${AGENT_CONFIG_HUB_MASTER_KEY:?Set a base64 32-byte master key}
+      AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN: ${AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN:-}
+      AGENT_CONFIG_HUB_TRUST_PROXY: ${AGENT_CONFIG_HUB_TRUST_PROXY:-}
+    ports:
+      - "${AGENT_CONFIG_HUB_PORT:-3000}:3000"
+    volumes:
+      - "${AGENT_CONFIG_HUB_DATA_DIR:-./data}:/data"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

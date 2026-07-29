@@ -11,6 +11,21 @@ export class BlobGcService {
     this.#database = database;
     this.#blobStore = blobStore;
   }
+  stats(): { blobs: number; plaintextBytes: number; unreferencedBlobs: number } {
+    return this.#database.native.prepare(`
+      SELECT
+        COUNT(*) AS blobs,
+        COALESCE(SUM(blobs.plaintext_size), 0) AS plaintextBytes,
+        COALESCE(SUM(CASE WHEN
+          NOT EXISTS (SELECT 1 FROM draft_files WHERE blob_sha256 = blobs.sha256) AND
+          NOT EXISTS (SELECT 1 FROM resource_revision_files WHERE blob_sha256 = blobs.sha256) AND
+          NOT EXISTS (SELECT 1 FROM release_source_files WHERE template_blob_sha256 = blobs.sha256) AND
+          NOT EXISTS (SELECT 1 FROM release_files WHERE blob_sha256 = blobs.sha256)
+        THEN 1 ELSE 0 END), 0) AS unreferencedBlobs
+      FROM blobs
+    `).get() as { blobs: number; plaintextBytes: number; unreferencedBlobs: number };
+  }
+
 
   async run(now = new Date()): Promise<{ scanned: number; deleted: number }> {
     const cutoff = new Date(now.getTime() - GC_GRACE_MS);

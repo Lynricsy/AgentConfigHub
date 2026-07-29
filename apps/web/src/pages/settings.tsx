@@ -1,16 +1,43 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { z } from "zod";
 
-import { mutateEmpty } from "../api.js";
+import { api, mutate, mutateEmpty } from "../api.js";
 import { ErrorNotice } from "../auth.js";
+
+const StorageStats = z.object({
+  blobs: z.number().int().nonnegative(),
+  plaintextBytes: z.number().int().nonnegative(),
+  unreferencedBlobs: z.number().int().nonnegative(),
+});
+const GcResult = z.object({
+  scanned: z.number().int().nonnegative(),
+  deleted: z.number().int().nonnegative(),
+});
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>();
+  const [gcPending, setGcPending] = useState(false);
+  const [gcResult, setGcResult] = useState<z.infer<typeof GcResult>>();
+  const [gcError, setGcError] = useState<unknown>();
+  const storage = useQuery({
+    queryKey: ["storage"],
+    queryFn: () => api("/api/v1/storage", StorageStats),
+  });
+  const runGc = async () => {
+    setGcPending(true); setGcError(undefined);
+    try {
+      const result = await mutate("/api/v1/storage/gc", GcResult, {});
+      setGcResult(result.data);
+      await queryClient.invalidateQueries({ queryKey: ["storage"] });
+    } catch (cause) { setGcError(cause); }
+    finally { setGcPending(false); }
+  };
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -33,6 +60,7 @@ export function SettingsPage() {
     <div className="two-column settings-layout">
       <form className="panel action-card stack" onSubmit={(event) => void changePassword(event)}><p className="eyebrow">Administrator</p><h2>Change password</h2><label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>New password<input name="newPassword" type="password" minLength={12} autoComplete="new-password" required /></label><label className="check"><input name="revokePullTokens" type="checkbox" />Revoke every device and automation token</label>{error !== undefined && <ErrorNotice error={error} />}<button className="primary" disabled={pending}>Change password & sign out</button></form>
       <section className="panel action-card"><p className="eyebrow">Security posture</p><h2>Storage & delivery</h2><dl><dt>Browser cache</dt><dd>No-store; no persistence</dd><dt>Credential values</dt><dd>Envelope encrypted</dd><dt>Device access</dt><dd>Pull-only bearer tokens</dd><dt>Release outputs</dt><dd>Immutable encrypted blobs</dd><dt>Mutation control</dt><dd>Origin + If-Match</dd></dl></section>
+      <section className="panel action-card stack"><p className="eyebrow">Maintenance</p><h2>Encrypted Blob storage</h2>{storage.data ? <dl><dt>Blobs</dt><dd>{storage.data.blobs}</dd><dt>Plaintext bytes</dt><dd>{storage.data.plaintextBytes.toLocaleString()}</dd><dt>Unreferenced</dt><dd>{storage.data.unreferencedBlobs}</dd></dl> : <p className="muted">Loading storage statistics...</p>}{gcResult && <p className="notice success">Scanned {gcResult.scanned}; deleted {gcResult.deleted} beyond the seven-day grace period.</p>}{gcError !== undefined && <ErrorNotice error={gcError} />}<button disabled={gcPending} onClick={() => void runGc()}>{gcPending ? "Running GC..." : "Run Blob GC"}</button></section>
     </div>
   </div>;
 }

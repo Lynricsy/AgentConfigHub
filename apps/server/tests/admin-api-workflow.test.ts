@@ -10,6 +10,7 @@ import { migrateDatabase } from "../src/db/migrate.js";
 import { buildServer } from "../src/index.js";
 import { loadMasterKey } from "../src/security/master-key.js";
 import { AuthService } from "../src/services/auth-service.js";
+import { BlobGcService } from "../src/services/blob-gc-service.js";
 import { ConfigSetService } from "../src/services/config-set-service.js";
 import { CredentialService } from "../src/services/credential-service.js";
 import { DeviceTokenService } from "../src/services/device-token-service.js";
@@ -41,6 +42,7 @@ describe("management API workflow", () => {
     const slots = new SecretSlotService(database);
     const publish = new PublishService(database, blobStore, new SecretBindingResolver(database, masterKey));
     const releases = new ReleaseViewService(database, blobStore);
+    const gc = new BlobGcService(database, blobStore);
     const server = buildServer({
       blobStore,
       api: {
@@ -51,7 +53,7 @@ describe("management API workflow", () => {
         blobStore,
         publicUrl,
         admin: {
-          database, configSets, credentials, resources, slots, publish, releases,
+          database, configSets, credentials, resources, slots, publish, releases, gc,
           verifyPassword: (password) => auth.verifyPassword(password),
         },
       },
@@ -230,6 +232,21 @@ describe("management API workflow", () => {
     });
     expect(deleteCurrent.statusCode).toBe(409);
     expect(deleteCurrent.json()).toMatchObject({ error: { code: "CURRENT_RELEASE_CANNOT_BE_DELETED" } });
+
+    const storage = await server.inject({
+      method: "GET", url: "/api/v1/storage", headers: { cookie },
+    });
+    expect(storage.statusCode).toBe(200);
+    expect(storage.json()).toMatchObject({
+      blobs: expect.any(Number),
+      plaintextBytes: expect.any(Number),
+      unreferencedBlobs: expect.any(Number),
+    });
+    const manualGc = await server.inject({
+      method: "POST", url: "/api/v1/storage/gc", headers: headers(),
+    });
+    expect(manualGc.statusCode).toBe(200);
+    expect(manualGc.json()).toMatchObject({ scanned: expect.any(Number), deleted: expect.any(Number) });
 
     const detail = await server.inject({
       method: "GET", url: `/api/v1/config-sets/${configSetId}`, headers: { cookie },

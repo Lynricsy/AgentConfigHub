@@ -11,6 +11,7 @@ import { migrateDatabase } from "../src/db/migrate.js";
 import { buildServer } from "../src/index.js";
 import { loadMasterKey } from "../src/security/master-key.js";
 import { AuthService } from "../src/services/auth-service.js";
+import { BlobGcService } from "../src/services/blob-gc-service.js";
 import { ConfigSetService } from "../src/services/config-set-service.js";
 import { CredentialService } from "../src/services/credential-service.js";
 import { DeviceTokenService } from "../src/services/device-token-service.js";
@@ -43,6 +44,7 @@ describe("authentication and pull API", () => {
     const slots = new SecretSlotService(database);
     const publish = new PublishService(database, blobStore, new SecretBindingResolver(database, masterKey));
     const releases = new ReleaseViewService(database, blobStore);
+    const gc = new BlobGcService(database, blobStore);
     const server = buildServer({
       blobStore,
       api: {
@@ -60,6 +62,7 @@ describe("authentication and pull API", () => {
           slots,
           publish,
           releases,
+          gc,
           verifyPassword: (password) => auth.verifyPassword(password),
         },
       },

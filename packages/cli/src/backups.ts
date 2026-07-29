@@ -1,11 +1,12 @@
+import { randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
 import { assertSafeRelativePath } from "@agent-config-hub/adapters";
 
-import { removePrivatePath, type LocalPaths, writePrivateJson } from "./local-store.js";
-import { inspectTarget, restoreExistingTarget, type ExistingTarget } from "./filesystem.js";
+import { copyFileDurable, inspectTarget, restoreExistingTarget, type ExistingTarget } from "./filesystem.js";
+import { ensurePrivateDirectory, removePrivatePath, type LocalPaths, writePrivateJson } from "./local-store.js";
 import { InstallState } from "./state.js";
 
 const ExistingTargetSchema = z.object({
@@ -37,6 +38,14 @@ export const BackupRecord = z.object({
   operations: z.array(BackupOperation),
   stateSnapshots: z.array(StateSnapshot),
 }).strict();
+const RestoreJournal = z.object({
+  version: z.literal(1),
+  transactionId: z.string().regex(/^[a-f0-9]{24}$/),
+  targetBackupId: z.string().regex(/^\d{17}-[a-f0-9]{12}$/),
+  inverseBackupId: z.string().regex(/^\d{17}-[a-f0-9]{12}$/),
+  inverseReady: z.boolean(),
+}).strict();
+
 
 export type BackupRecord = z.infer<typeof BackupRecord>;
 export type BackupOperation = z.infer<typeof BackupOperation>;
@@ -80,15 +89,33 @@ export function backupBytesPath(paths: LocalPaths, backupId: string, relativePat
   return join(paths.backupDirectory, backupId, relativePath);
 }
 
-export async function restoreBackup(paths: LocalPaths, backupId: string): Promise<BackupRecord> {
-  const record = await readBackup(paths, backupId);
-  for (const operation of [...record.operations].reverse()) {
+function makeBackupId(): string {
+  return `${new Date().toISOString().replace(/[-:.TZ]/g, "")}-${randomBytes(6).toString("hex")}`;
+}
+
+async function preflightBackup(record: BackupRecord): Promise<void> {
+  for (const operation of record.operations) {
     await inspectTarget(operation.root, operation.destination, true);
+  }
+}
+
+async function currentStateSnapshot(paths: LocalPaths, fileName: string): Promise<InstallState | null> {
+  try {
+    return InstallState.parse(JSON.parse(await readFile(join(paths.stateDirectory, fileName), "utf8")));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+export async function applyBackupRecord(paths: LocalPaths, record: BackupRecord): Promise<void> {
+  await preflightBackup(record);
+  for (const operation of [...record.operations].reverse()) {
     await restoreExistingTarget(
       operation.destination,
       operation.prior as ExistingTarget,
       operation.backupRelativePath
-        ? backupBytesPath(paths, backupId, operation.backupRelativePath)
+        ? backupBytesPath(paths, record.id, operation.backupRelativePath)
         : undefined,
     );
   }
@@ -97,7 +124,89 @@ export async function restoreBackup(paths: LocalPaths, backupId: string): Promis
     if (snapshot.value) await writePrivateJson(statePath, snapshot.value);
     else await removePrivatePath(statePath);
   }
-  return record;
+}
+
+export async function restoreBackup(paths: LocalPaths, backupId: string): Promise<BackupRecord> {
+  const record = await readBackup(paths, backupId);
+  await preflightBackup(record);
+  const transactionId = randomBytes(12).toString("hex");
+  const inverseBackupId = makeBackupId();
+  await ensurePrivateDirectory(paths.transactionDirectory);
+  const journalPath = join(paths.transactionDirectory, `restore-${transactionId}.json`);
+  const persistJournal = async (inverseReady: boolean) => await writePrivateJson(journalPath, {
+    version: 1,
+    transactionId,
+    targetBackupId: backupId,
+    inverseBackupId,
+    inverseReady,
+  });
+  await persistJournal(false);
+  const inverseOperations: BackupOperation[] = [];
+  for (let index = 0; index < record.operations.length; index += 1) {
+    const operation = record.operations[index]!;
+    const current = await inspectTarget(operation.root, operation.destination, true);
+    const backupRelativePath = current.kind === "file" ? `files/${index}` : undefined;
+    if (backupRelativePath) {
+      await copyFileDurable(
+        operation.destination,
+        backupBytesPath(paths, inverseBackupId, backupRelativePath),
+        0o600,
+      );
+    }
+    inverseOperations.push({
+      root: operation.root,
+      destination: operation.destination,
+      prior: current,
+      ...(backupRelativePath ? { backupRelativePath } : {}),
+    });
+  }
+  const inverse: BackupRecord = {
+    version: 1,
+    id: inverseBackupId,
+    createdAt: new Date().toISOString(),
+    serverOrigin: record.serverOrigin,
+    profile: record.profile,
+    releaseId: record.releaseId,
+    releaseNumber: record.releaseNumber,
+    operations: inverseOperations,
+    stateSnapshots: await Promise.all(record.stateSnapshots.map(async ({ fileName }) => ({
+      fileName,
+      value: await currentStateSnapshot(paths, fileName),
+    }))),
+  };
+  await saveBackupRecord(paths, inverse);
+  await persistJournal(true);
+  try {
+    await applyBackupRecord(paths, record);
+    await removePrivatePath(journalPath);
+    return record;
+  } catch (error) {
+    await applyBackupRecord(paths, inverse);
+    await removePrivatePath(journalPath);
+    throw error;
+  }
+}
+
+export async function recoverInterruptedBackupRestores(paths: LocalPaths): Promise<void> {
+  try {
+    const entries = await readdir(paths.transactionDirectory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.startsWith("restore-") || !entry.name.endsWith(".json")) continue;
+      const journalPath = join(paths.transactionDirectory, entry.name);
+      const journal = RestoreJournal.parse(JSON.parse(await readFile(journalPath, "utf8")));
+      if (entry.name !== `restore-${journal.transactionId}.json`) {
+        throw new Error(`Restore journal name does not match its ID: ${entry.name}`);
+      }
+      if (journal.inverseReady) {
+        await applyBackupRecord(paths, await readBackup(paths, journal.inverseBackupId));
+      } else {
+        await removePrivatePath(join(paths.backupDirectory, journal.inverseBackupId));
+      }
+      await removePrivatePath(journalPath);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 }
 
 export async function deleteBackup(paths: LocalPaths, backupId: string): Promise<void> {

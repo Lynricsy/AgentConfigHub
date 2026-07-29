@@ -7,7 +7,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ReleaseManifestV1, type ReleaseFileV1 } from "@agent-config-hub/protocol";
 
 import type { ApiClient } from "../api-client.js";
-import { backupBytesPath, listBackups, restoreBackup, saveBackupRecord } from "../backups.js";
+import {
+  backupBytesPath,
+  listBackups,
+  recoverInterruptedBackupRestores,
+  restoreBackup,
+  saveBackupRecord,
+} from "../backups.js";
 import { copyFileDurable } from "../filesystem.js";
 import { ensurePrivateDirectory, localPaths, removePrivatePath, writePrivateJson } from "../local-store.js";
 import { loadStates } from "../state.js";
@@ -292,6 +298,86 @@ describe("applyRelease", () => {
       await expect(lstat(removed)).rejects.toMatchObject({ code: "ENOENT" });
     }
   });
+  it("preflights every backup target before restoring the first file", async () => {
+    const { root, paths } = await fixture();
+    const backupId = "20260729123456789-fedcbafedcba";
+    const first = join(root, "settings.json");
+    await writeFile(first, "before restore");
+    await copyFileDurable(first, backupBytesPath(paths, backupId, "files/0"), 0o600);
+    await writeFile(first, "current value");
+    const outside = join(temporary!, "restore-outside");
+    await mkdir(outside);
+    await symlink(outside, join(root, "rules"), process.platform === "win32" ? "junction" : "dir");
+    await saveBackupRecord(paths, {
+      version: 1,
+      id: backupId,
+      createdAt: new Date().toISOString(),
+      serverOrigin: "https://hub.example",
+      profile: "workstation",
+      releaseId: "release-restore",
+      releaseNumber: 1,
+      operations: [
+        {
+          root,
+          destination: first,
+          prior: { kind: "file", mode: 0o600 },
+          backupRelativePath: "files/0",
+        },
+        {
+          root,
+          destination: join(root, "rules/test.md"),
+          prior: { kind: "missing" },
+        },
+      ],
+      stateSnapshots: [],
+    });
+    await expect(restoreBackup(paths, backupId)).rejects.toThrow("ancestor");
+    expect(await readFile(first, "utf8")).toBe("current value");
+  });
+
+  it("rolls an interrupted explicit restore back to its inverse snapshot", async () => {
+    const { root, paths } = await fixture();
+    const transactionId = "1234567890abcdef12345678";
+    const inverseBackupId = "20260729123456789-123456abcdef";
+    const targetBackupId = "20260729123456789-abcdef123456";
+    const destination = join(root, "settings.json");
+    await writeFile(destination, "pre-restore value");
+    await copyFileDurable(
+      destination,
+      backupBytesPath(paths, inverseBackupId, "files/0"),
+      0o600,
+    );
+    await saveBackupRecord(paths, {
+      version: 1,
+      id: inverseBackupId,
+      createdAt: new Date().toISOString(),
+      serverOrigin: "https://hub.example",
+      profile: "workstation",
+      releaseId: "release-inverse",
+      releaseNumber: 2,
+      operations: [{
+        root,
+        destination,
+        prior: { kind: "file", mode: 0o600 },
+        backupRelativePath: "files/0",
+      }],
+      stateSnapshots: [],
+    });
+    await writeFile(destination, "partially restored");
+    await ensurePrivateDirectory(paths.transactionDirectory);
+    const journalPath = join(paths.transactionDirectory, `restore-${transactionId}.json`);
+    await writePrivateJson(journalPath, {
+      version: 1,
+      transactionId,
+      targetBackupId,
+      inverseBackupId,
+      inverseReady: true,
+    });
+    await recoverInterruptedBackupRestores(paths);
+    expect(await readFile(destination, "utf8")).toBe("pre-restore value");
+    await expect(lstat(journalPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("handles a Windows case-only managed path change without deleting the replacement", async () => {
     if (process.platform !== "win32") return;
     const { root, paths } = await fixture();

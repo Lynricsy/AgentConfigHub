@@ -11,6 +11,7 @@ import { AgentId, LogicalTarget } from "@agent-config-hub/protocol";
 
 import type { DatabaseContext } from "../db/database.js";
 import { scanInlineSecrets } from "../security/secret-replacement.js";
+import type { BlobGcService } from "../services/blob-gc-service.js";
 import type { ConfigSetService } from "../services/config-set-service.js";
 import { AuthenticationError } from "../services/auth-service.js";
 import type { CredentialService } from "../services/credential-service.js";
@@ -96,6 +97,7 @@ export interface AdminApiDependencies {
   readonly slots: SecretSlotService;
   readonly publish: PublishService;
   readonly releases: ReleaseViewService;
+  readonly gc: BlobGcService;
   readonly verifyPassword: (password: string) => Promise<boolean>;
 }
 
@@ -499,6 +501,12 @@ export function registerAdminApiRoutes(
       return reply.code(204).send();
     },
   );
+  server.get("/api/v1/storage", protectedMutation, async () => dependencies.gc.stats());
+  server.post("/api/v1/storage/gc", protectedMutation, async (request) => {
+    assertOrigin(request);
+    return await dependencies.gc.run();
+  });
+
   server.get<{
     Params: { releaseId: string };
     Querystring: { before?: string };

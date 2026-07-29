@@ -11,6 +11,8 @@ import { registerBlobRoutes } from "./routes/blobs.js";
 import { registerApiRoutes, type ApiDependencies } from "./routes/api.js";
 import { loadMasterKey } from "./security/master-key.js";
 import { AuthService } from "./services/auth-service.js";
+import { parseTrustedProxies, validatePublicUrl, verifyLocalDataVolume } from "./runtime.js";
+import { BlobGcService } from "./services/blob-gc-service.js";
 import { ConfigSetService } from "./services/config-set-service.js";
 import { CredentialService } from "./services/credential-service.js";
 import { DeviceTokenService } from "./services/device-token-service.js";
@@ -26,10 +28,17 @@ const defaultWebRoot = fileURLToPath(new URL("../../web/dist", import.meta.url))
 export interface ServerDependencies {
   readonly blobStore?: EncryptedBlobStore;
   readonly api?: ApiDependencies;
+  readonly health?: () => boolean | Promise<boolean>;
+}
+export interface ServerOptions {
+  readonly trustProxy?: false | string[];
 }
 
-export function buildServer(dependencies: ServerDependencies = {}) {
-  const server = Fastify({ logger: true });
+export function buildServer(
+  dependencies: ServerDependencies = {},
+  options: ServerOptions = {},
+) {
+  const server = Fastify({ logger: true, trustProxy: options.trustProxy ?? false });
   const webRoot = process.env.AGENT_CONFIG_HUB_WEB_ROOT ?? defaultWebRoot;
   const serveWeb = process.env.NODE_ENV === "production";
 
@@ -48,7 +57,14 @@ export function buildServer(dependencies: ServerDependencies = {}) {
     });
   }
 
-  server.get("/api/v1/health", async () => ({ status: "ok" }));
+  server.get("/api/v1/health", async (_request, reply) => {
+    try {
+      if (dependencies.health && !await dependencies.health()) throw new Error("Server is not ready.");
+      return { status: "ok" };
+    } catch {
+      return reply.code(503).send({ status: "unavailable" });
+    }
+  });
 
   server.setNotFoundHandler(async (request, reply) => {
     if (request.url.startsWith("/api/")) {
@@ -72,12 +88,20 @@ export function buildServer(dependencies: ServerDependencies = {}) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  const publicUrl = validatePublicUrl(process.env.AGENT_CONFIG_HUB_PUBLIC_URL);
+  const trustedProxies = parseTrustedProxies(process.env.AGENT_CONFIG_HUB_TRUST_PROXY);
   const dataDir = process.env.AGENT_CONFIG_HUB_DATA_DIR ?? resolve("data");
   const masterKey = await loadMasterKey();
   const database = openDatabase(dataDir);
-  migrateDatabase(database);
+  try {
+    migrateDatabase(database);
+    await verifyLocalDataVolume(dataDir, database);
+  } catch (error) {
+    database.native.close();
+    throw error;
+  }
   const blobStore = new FileEncryptedBlobStore(database, masterKey, dataDir);
-  const publicUrl = process.env.AGENT_CONFIG_HUB_PUBLIC_URL ?? "http://127.0.0.1:3000";
+  const gc = new BlobGcService(database, blobStore);
   const auth = new AuthService(database, {
     ...(process.env.AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN
       ? { bootstrapToken: process.env.AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN }
@@ -92,6 +116,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const releases = new ReleaseViewService(database, blobStore);
   const server = buildServer({
     blobStore,
+    health: () => {
+      database.native.exec("BEGIN IMMEDIATE; ROLLBACK;");
+      return true;
+    },
     api: {
       database,
       auth,
@@ -107,12 +135,38 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         slots,
         publish,
         releases,
+        gc,
         verifyPassword: (password) => auth.verifyPassword(password),
       },
     },
-  });
+  }, { trustProxy: trustedProxies });
   if (auth.setupCode) server.log.warn({ setupCode: auth.setupCode }, "initial setup code");
+
+  const gcTimer = setInterval(() => {
+    void gc.run().then(
+      (result) => server.log.info(result, "daily blob GC completed"),
+      (error: unknown) => server.log.error({ err: error }, "daily blob GC failed"),
+    );
+  }, 24 * 60 * 60 * 1000);
+  gcTimer.unref();
+  let closing = false;
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (closing) return;
+    closing = true;
+    server.log.info({ signal }, "graceful shutdown started");
+    void server.close().catch((error: unknown) => {
+      server.log.error({ err: error }, "graceful shutdown failed");
+      process.exitCode = 1;
+    });
+  };
+  const onSigterm = () => shutdown("SIGTERM");
+  const onSigint = () => shutdown("SIGINT");
+  process.once("SIGTERM", onSigterm);
+  process.once("SIGINT", onSigint);
   server.addHook("onClose", async () => {
+    clearInterval(gcTimer);
+    process.removeListener("SIGTERM", onSigterm);
+    process.removeListener("SIGINT", onSigint);
     database.native.close();
   });
 
@@ -122,6 +176,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       port: Number(process.env.PORT ?? 3000),
     });
   } catch (error) {
+    clearInterval(gcTimer);
+    process.removeListener("SIGTERM", onSigterm);
+    process.removeListener("SIGINT", onSigint);
     database.native.close();
     throw error;
   }

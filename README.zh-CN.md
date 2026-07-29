@@ -14,16 +14,58 @@ AgentConfigHub 是面向个人部署的单实例配置控制平面。服务端�
 
 ## 功能
 
-AgentConfigHub 正在积极开发。目标版本包括：
-
 - 相互独立的命名配置集、不可变发布与回滚
-- 基于信封加密的 Blob 与凭据修订
-- 密码保护的管理端和一次性设备配对审批
-- 带备份和受管文件保护的跨平台事务安装
-- 原生文件编辑、共享 instructions 与可移植 Agent Skills
-- 可通过 `npx agent-config-hub` 运行的只拉取 CLI
+- 基于 Monaco 的原生文件编辑、诊断、共享 instructions 与可移植 Agent Skills
+- 带格式感知秘密槽位的信封加密 Blob 与凭据修订
+- 密码保护管理端、一次性设备配对和可撤销自动化令牌
+- 带完整备份、受管删除保护、链接/reparse point 拒绝和崩溃恢复的跨平台事务安装
+- 六个内置 Agent 适配器，以及为 `npx` 打包的只拉取 CLI
 
-命令和部署说明会在对应端到端路径验证后补充。
+## 使用 Docker Compose 自托管
+
+需要 Docker Compose v2；非本机回环部署还需要负责 HTTPS 终止的反向代理。
+
+```bash
+export AGENT_CONFIG_HUB_PUBLIC_URL=https://agents.example.com
+export AGENT_CONFIG_HUB_MASTER_KEY="$(openssl rand -base64 32)"
+docker compose up --build -d
+```
+
+一次性 `initialize-data` 服务会先为非 root 运行时 UID `10001` 准备 `${AGENT_CONFIG_HUB_DATA_DIR:-./data}`；随后应用容器以只读根文件系统、无 Linux capability 的方式运行。请同时备份数据目录与主密钥；丢失主密钥后，加密凭据和 Blob 无法恢复。
+
+本机评估允许 `http://127.0.0.1:<port>`；所有非回环公开 URL 必须使用 HTTPS。若反向代理提供转发头，请把 `AGENT_CONFIG_HUB_TRUST_PROXY` 设置为逗号分隔的明确 IP/CIDR 白名单，绝不能信任任意代理。
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `AGENT_CONFIG_HUB_PUBLIC_URL` | 必填规范 URL；除回环外必须 HTTPS |
+| `AGENT_CONFIG_HUB_MASTER_KEY` | 必填 Base64 编码 32 字节主密钥 |
+| `AGENT_CONFIG_HUB_DATA_DIR` | Compose 宿主机绑定路径；默认 `./data` |
+| `AGENT_CONFIG_HUB_BOOTSTRAP_TOKEN` | 可选首次初始化码 |
+| `AGENT_CONFIG_HUB_TRUST_PROXY` | 可选明确代理 IP/CIDR 列表 |
+| `AGENT_CONFIG_HUB_PORT` | Compose 暴露的宿主机端口；默认 `3000` |
+
+## CLI
+
+软件包暴露 `agent-config-hub` 可执行文件。本源码版本尚未执行 npm registry 发布；打包 tarball 与工作区构建已通过真实 `npx` 安装验证。
+
+```text
+agent-config-hub login --server <url> [--name <device>]
+agent-config-hub logout
+agent-config-hub config-sets
+agent-config-hub pull --profile <slug> [--agent <id>...] [--dry-run]
+  [--target-root <root>=<path>] [--replace-symlink] [--force-remove-modified]
+agent-config-hub status --profile <slug>
+agent-config-hub backups list|restore <id>|delete <id>
+agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
+```
+
+`login` 执行浏览器审批的设备配对。自动化可用 `AGENT_CONFIG_HUB_SERVER` 和 `AGENT_CONFIG_HUB_TOKEN` 覆盖本地凭据，令牌无需进入 argv。拉取会校验不可变清单、流式下载并计算哈希、在同文件系统 staging、备份被覆盖/删除的受管文件，再通过持久 journal 提交。
+
+## 运维
+
+- `GET /api/v1/health` 只在迁移、主密钥加载、本地卷探测和实时 SQLite 写锁探针均正常后成功。
+- 设置页展示加密 Blob 统计并支持手动 GC；服务端每 24 小时自动运行 GC，未引用 Blob 保留七天宽限期。
+- `SIGTERM`/`SIGINT` 会停止新请求，通过 Fastify close 排空进行中工作，清理维护计时器后再关闭 SQLite。
 
 ## 支持的 Agent
 
@@ -43,9 +85,9 @@ AgentConfigHub 正在积极开发。目标版本包括：
 
 服务端具有权威性，客户端只允许拉取。秘密通过结构化凭据表单录入，以每条记录独立数据密钥加密，并冻结为精确发布输出。服务端只保存令牌哈希。发布清单仅含逻辑目标，不包含服务端或客户端绝对路径。CLI 只会写入和删除适配器许可且可证明由其管理的目标。
 
-## 开发状态
+## 发布状态
 
-本仓库正依据已批准的实施计划开发。在对应自动化与端到端验证通过前，公开 API、npm 安装、容器部署和运维命令均不视为已发布能力。
+仓库现包含经验证的预发布实现：生产 Web E2E、认证/加密集成、六适配器契约、真实打包 `npx` 拉取、崩溃恢复、Blob GC 和非 root Compose 启动均有可执行覆盖。尚未执行 npm registry 发布；首次打标签发布前 API 仍可能调整。
 
 ## 许可证
 

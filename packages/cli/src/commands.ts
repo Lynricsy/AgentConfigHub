@@ -6,7 +6,12 @@ import { getAdapter, resolveTargetPath, type ClientPathContext } from "@agent-co
 import { AgentId, TargetRootId, type AgentId as Agent, type TargetRootId as Root } from "@agent-config-hub/protocol";
 
 import { ApiClient, CliApiError, normalizeServerUrl } from "./api-client.js";
-import { deleteBackup, listBackups, restoreBackup } from "./backups.js";
+import {
+  deleteBackup,
+  listBackups,
+  recoverInterruptedBackupRestores,
+  restoreBackup,
+} from "./backups.js";
 import { inspectTarget, sha256File } from "./filesystem.js";
 import {
   assertAbsoluteRoot,
@@ -245,6 +250,7 @@ export async function runCli(
   environment: NodeJS.ProcessEnv = process.env,
   paths: LocalPaths = localPaths(environment),
 ): Promise<void> {
+  await recoverInterruptedBackupRestores(paths);
   await recoverInterruptedTransactions(paths);
   const args = new Arguments(argv);
   const command = args.take("command");

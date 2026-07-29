@@ -17,7 +17,8 @@ import {
   backupBytesPath,
   type BackupOperation,
   type BackupRecord,
-  restoreBackup,
+  applyBackupRecord,
+  readBackup,
   saveBackupRecord,
 } from "../backups.js";
 import {
@@ -276,7 +277,7 @@ async function recoverTransaction(
 ): Promise<void> {
   assertJournalPaths(journal);
   if (journal.backupReady && journal.backupId) {
-    await restoreBackup(paths, journal.backupId);
+    await applyBackupRecord(paths, await readBackup(paths, journal.backupId));
   } else if (journal.backupId) {
     await removePrivatePath(join(paths.backupDirectory, journal.backupId));
   }
@@ -559,6 +560,7 @@ export async function recoverInterruptedTransactions(paths: LocalPaths): Promise
   try {
     const journals = await readdir(paths.transactionDirectory, { withFileTypes: true });
     for (const journal of journals) {
+      if (journal.name.startsWith("restore-")) continue;
       if (!journal.isFile() || !journal.name.endsWith(".json")) continue;
       const journalPath = join(paths.transactionDirectory, journal.name);
       const payload = TransactionJournal.parse(JSON.parse(await readFile(journalPath, "utf8")));
