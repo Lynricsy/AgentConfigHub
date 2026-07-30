@@ -1,5 +1,23 @@
 import Editor, { type Monaco, type OnMount } from "@monaco-editor/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Check,
+  CircleAlert,
+  Copy,
+  Database,
+  Dot,
+  Download,
+  FileCode,
+  GitMerge,
+  Info,
+  LoaderCircle,
+  Plus,
+  RotateCcw,
+  Trash2,
+  TriangleAlert,
+  Upload,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -22,6 +40,9 @@ import {
 import { ErrorNotice } from "../auth.js";
 import { AutosaveCoordinator, type AutosaveState } from "../autosave.js";
 import { useAppStatus } from "../shell.js";
+import { Empty, Field, Loading } from "../ui/bits.js";
+import { MagneticButton } from "../ui/magnetic.js";
+import { Page } from "../ui/page.js";
 
 const RevisionResult = z.object({ revision: z.number().int() });
 const MONACO_LIMIT = 2 * 1024 * 1024;
@@ -232,6 +253,30 @@ function TextFileEditor({
 
   const beforeMount = (instance: Monaco) => {
     monaco.current = instance;
+    instance.editor.defineTheme("ach-void", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [
+        { token: "comment", foreground: "3d4d47" },
+        { token: "string", foreground: "b8f35b" },
+        { token: "number", foreground: "ffc76b" },
+        { token: "keyword", foreground: "3ddcff" },
+        { token: "type", foreground: "3ddcff" },
+        { token: "key", foreground: "e9efe9" },
+      ],
+      colors: {
+        "editor.background": "#080b0e",
+        "editor.foreground": "#e9efe9",
+        "editorLineNumber.foreground": "#2b3a36",
+        "editorLineNumber.activeForeground": "#b8f35b",
+        "editor.lineHighlightBackground": "#0d1114",
+        "editorCursor.foreground": "#b8f35b",
+        "editor.selectionBackground": "#1d2f1c",
+        "editorIndentGuide.background1": "#151c1a",
+        "editorWidget.background": "#0d1114",
+        "editorWidget.border": "#1e2a27",
+      },
+    });
     if (language === "json") instance.languages.json.jsonDefaults.setDiagnosticsOptions({
       validate: true,
       allowComments: file.relativePath.endsWith(".jsonc"),
@@ -244,48 +289,121 @@ function TextFileEditor({
   };
   const onMount: OnMount = (editor) => { model.current = editor; };
 
-  if (source.isPending) return <div className="center-state"><span className="spinner" />Loading file…</div>;
+  if (source.isPending) return <Loading label="Loading file…" />;
   if (source.error) return <ErrorNotice error={source.error} />;
-  return <div className="editor-stack">
-    <div className="editor-toolbar"><span className={`save-state ${saveState}`}>{saveState}</span><span className="mono">{modelUri}</span></div>
-    <Editor
-      height="calc(100vh - 282px)"
-      language={language}
-      path={modelUri}
-      value={text}
-      onChange={(value) => setText(value ?? "")}
-      beforeMount={beforeMount}
-      onMount={onMount}
-      keepCurrentModel
-      saveViewState
-      theme="vs-dark"
-      options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2, wordWrap: "on", automaticLayout: true }}
-    />
-    <DiagnosticsPanel diagnostics={diagnostics} />
-    {saveState === "conflict" && <div className="conflict-panel" role="alert">
-      <div><strong>Revision conflict</strong><p>Your model is preserved. Compare it with the current server value.</p></div>
-      <div className="conflict-columns"><pre>{text}</pre><pre>{serverConflictText}</pre></div>
-      <div className="button-row">
-        <button onClick={() => void navigator.clipboard.writeText(text)}>Copy local</button>
-        <button className="danger" onClick={() => {
-          const serverText = serverConflictText ?? "";
-          savedText.current = serverText;
-          setText(serverText);
-          coordinator.resolveConflict(serverText);
-          setServerConflictText(null);
-        }}>Reload server</button>
+
+  const saveStateIcon = saveState === "saved"
+    ? <Check size={15} strokeWidth={1.5} aria-hidden="true" />
+    : saveState === "saving"
+      ? <LoaderCircle className="spin" size={15} strokeWidth={1.5} aria-hidden="true" />
+      : saveState === "unsaved"
+        ? <Dot size={15} strokeWidth={1.5} aria-hidden="true" />
+        : <GitMerge size={15} strokeWidth={1.5} aria-hidden="true" />;
+
+  return (
+    <div className="editor-stack">
+      <div className="editor-toolbar">
+        {saveStateIcon}
+        <span className={`save-state ${saveState}`}>{saveState}</span>
+        <span className="mono">{modelUri}</span>
       </div>
-    </div>}
-  </div>;
+      <Editor
+        height="100%"
+        language={language}
+        path={modelUri}
+        value={text}
+        onChange={(value) => setText(value ?? "")}
+        beforeMount={beforeMount}
+        onMount={onMount}
+        keepCurrentModel
+        saveViewState
+        theme="ach-void"
+        options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2, wordWrap: "on", automaticLayout: true }}
+      />
+      <DiagnosticsPanel diagnostics={diagnostics} />
+      {saveState === "conflict" && (
+        <div className="conflict-panel" role="alert">
+          <div>
+            <strong>Revision conflict</strong>
+            <p>Your model is preserved. Compare it with the current server value.</p>
+          </div>
+          <div className="conflict-columns">
+            <div>
+              <p className="eyebrow">LOCAL MODEL</p>
+              <pre>{text}</pre>
+            </div>
+            <div>
+              <p className="eyebrow">SERVER VALUE</p>
+              <pre>{serverConflictText}</pre>
+            </div>
+          </div>
+          <div className="button-row">
+            <button className="btn" onClick={() => void navigator.clipboard.writeText(text)}>
+              <Copy size={15} strokeWidth={1.5} aria-hidden="true" />
+              Copy local
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={() => {
+                const serverText = serverConflictText ?? "";
+                savedText.current = serverText;
+                setText(serverText);
+                coordinator.resolveConflict(serverText);
+                setServerConflictText(null);
+              }}
+            >
+              <RotateCcw size={15} strokeWidth={1.5} aria-hidden="true" />
+              Reload server
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostic[] }) {
-  return <section className="diagnostics-panel">
-    <header><strong>Diagnostics</strong><span>{diagnostics.length}</span></header>
-    {diagnostics.length === 0 ? <p className="muted">No issues detected.</p> : diagnostics.map((diagnostic, index) => <div className={`diagnostic ${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
-      <span>{diagnostic.severity}</span><code>{diagnostic.code}</code><p>{diagnostic.message}</p>
-    </div>)}
-  </section>;
+  return (
+    <section className="diagnostics">
+      <header>
+        <strong>Diagnostics</strong>
+        <span>{diagnostics.length}</span>
+      </header>
+      {diagnostics.length === 0
+        ? <p className="muted">No issues detected.</p>
+        : (
+          <AnimatePresence initial={false}>
+            {diagnostics.map((diagnostic, index) => {
+              const Icon = diagnostic.severity === "error"
+                ? CircleAlert
+                : diagnostic.severity === "warning"
+                  ? TriangleAlert
+                  : Info;
+              const borderColor = diagnostic.severity === "error"
+                ? "var(--danger)"
+                : diagnostic.severity === "warning"
+                  ? "var(--warn)"
+                  : "var(--volt)";
+              return (
+                <motion.div
+                  className={`diagnostic ${diagnostic.severity}`}
+                  key={`${diagnostic.code}-${index}`}
+                  style={{ borderLeftColor: borderColor }}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -8 }}
+                  transition={{ delay: index * 0.04 }}
+                >
+                  <Icon size={15} strokeWidth={1.5} aria-hidden="true" />
+                  <code>{diagnostic.code}</code>
+                  <p>{diagnostic.message}</p>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        )}
+    </section>
+  );
 }
 
 function BinaryFilePanel({
@@ -320,18 +438,43 @@ function BinaryFilePanel({
       setError(cause);
     }
   };
-  return <div className="binary-panel panel">
-    <p className="eyebrow">Binary asset</p><h2>{file.relativePath}</h2>
-    <dl><dt>MIME</dt><dd>{file.mediaType}</dd><dt>Size</dt><dd>{file.size.toLocaleString()} bytes</dd><dt>SHA-256</dt><dd className="mono break">{file.blobSha256}</dd></dl>
-    {error !== undefined && <ErrorNotice error={error} />}
-    <div className="button-row">
-      <a className="button" href={`/api/v1/blobs/${file.blobSha256}`} download={file.relativePath.split("/").at(-1)}>Download</a>
-      <label className="button">Replace<input className="visually-hidden" type="file" onChange={(event) => {
-        const replacement = event.target.files?.[0];
-        if (replacement) void replace(replacement);
-      }} /></label>
+  return (
+    <div className="binary-panel panel">
+      <p className="eyebrow">Binary asset</p>
+      <h2>{file.relativePath}</h2>
+      <dl className="mono">
+        <dt>MIME</dt>
+        <dd>{file.mediaType}</dd>
+        <dt>Size</dt>
+        <dd>{file.size.toLocaleString()} bytes</dd>
+        <dt>SHA-256</dt>
+        <dd className="break">{file.blobSha256}</dd>
+      </dl>
+      {error !== undefined && <ErrorNotice error={error} />}
+      <div className="button-row">
+        <a
+          className="btn"
+          href={`/api/v1/blobs/${file.blobSha256}`}
+          download={file.relativePath.split("/").at(-1)}
+        >
+          <Download size={15} strokeWidth={1.5} aria-hidden="true" />
+          Download
+        </a>
+        <label className="btn">
+          <Upload size={15} strokeWidth={1.5} aria-hidden="true" />
+          Replace
+          <input
+            className="visually-hidden"
+            type="file"
+            onChange={(event) => {
+              const replacement = event.target.files?.[0];
+              if (replacement) void replace(replacement);
+            }}
+          />
+        </label>
+      </div>
     </div>
-  </div>;
+  );
 }
 
 export function ConfigEditorPage() {
@@ -416,41 +559,147 @@ export function ConfigEditorPage() {
     }
   };
 
-  if (detail.isPending || adapters.isPending) return <div className="center-state"><span className="spinner" />Loading editor…</div>;
+  if (detail.isPending || adapters.isPending) return <Loading label="Loading editor…" />;
   if (detail.error) return <ErrorNotice error={detail.error} />;
   if (adapters.error) return <ErrorNotice error={adapters.error} />;
   if (!detail.data) return null;
   const filesByAgent = Map.groupBy(detail.data.files, ({ agentId }) => agentId);
 
-  return <div className="editor-page">
-    <header className="editor-head">
-      <div><p className="eyebrow">{detail.data.configSet.slug}</p><h1>{detail.data.configSet.name}</h1></div>
-      <div className="button-row"><button onClick={() => setAdding((value) => !value)}>Add file</button><button className="danger" disabled={!selected} onClick={() => void removeSelected()}>Delete</button></div>
-    </header>
-    {adding && <form className="add-file-bar" onSubmit={(event) => void addFile(event)}>
-      <label>Agent<select name="agentId" required value={newFileAgent || detail.data.configSet.enabledAgents[0]} onChange={(event) => { setNewFileAgent(event.target.value); setNewFileSurface(0); }}>{detail.data.configSet.enabledAgents.map((agentId) => <option key={agentId}>{agentId}</option>)}</select></label>
-      <label>Managed surface<select name="surface" required value={newFileSurface} onChange={(event) => setNewFileSurface(Number(event.target.value))}>{adapters.data?.find(({ id }) => id === (newFileAgent || detail.data.configSet.enabledAgents[0]))?.surfaces.filter(({ reserved }) => !reserved).map((surface, index) => <option key={`${surface.root}-${surface.pattern}`} value={index}>{surface.root} · {surface.pattern}</option>)}</select></label>
-      <label className="grow">Relative path<input name="relativePath" placeholder="settings.json" required /></label>
-      <button className="primary">Create</button>
-    </form>}
-    {actionError !== undefined && <ErrorNotice error={actionError} />}
-    <div className="editor-grid">
-      <aside className="file-tree">
-        <div className="tree-title"><span>Managed files</span><span>{detail.data.files.length}</span></div>
-        {[...filesByAgent.entries()].map(([agentId, files]) => <section key={agentId}>
-          <h3>{agentId}</h3>
-          {files.map((file) => <button className={file.id === selectedFileId ? "selected" : ""} key={file.id} onClick={() => setSelectedFileId(file.id)}>
-            <span className="file-kind">{file.utf8 ? "TXT" : "BIN"}</span>
-            <span><strong>{file.relativePath.split("/").at(-1)}</strong><small>{file.root}/{file.relativePath}</small></span>
-          </button>)}
-        </section>)}
-        {detail.data.files.length === 0 && <p className="muted tree-empty">No native files yet.</p>}
-      </aside>
-      <main className="editor-main">
-        {!selected && <div className="empty-state"><strong>Select or create a file</strong><p>Each file keeps an independent Monaco model and undo history.</p></div>}
-        {selected && selected.utf8 && selected.size <= MONACO_LIMIT && adapter && <TextFileEditor key={selected.id} configSetId={configSetId} initialRevision={detail.data.configSet.draftRevision} file={selected} adapter={adapter} />}
-        {selected && (!selected.utf8 || selected.size > MONACO_LIMIT) && <BinaryFilePanel configSetId={configSetId} revision={detail.data.configSet.draftRevision} file={selected} />}
-      </main>
-    </div>
-  </div>;
+  return (
+    <Page
+      index="02"
+      eyebrow={detail.data.configSet.slug}
+      title={detail.data.configSet.name}
+      actions={(
+        <>
+          <button className="btn" onClick={() => setAdding((value) => !value)}>
+            <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
+            Add file
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={!selected}
+            onClick={() => void removeSelected()}
+          >
+            <Trash2 size={15} strokeWidth={1.5} aria-hidden="true" />
+            Delete
+          </button>
+        </>
+      )}
+    >
+      {adding && (
+        <form className="add-file-bar" onSubmit={(event) => void addFile(event)}>
+          <label>
+            Agent
+            <select
+              name="agentId"
+              required
+              value={newFileAgent || detail.data.configSet.enabledAgents[0]}
+              onChange={(event) => {
+                setNewFileAgent(event.target.value);
+                setNewFileSurface(0);
+              }}
+            >
+              {detail.data.configSet.enabledAgents.map((agentId) => (
+                <option key={agentId}>{agentId}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Managed surface
+            <select
+              name="surface"
+              required
+              value={newFileSurface}
+              onChange={(event) => setNewFileSurface(Number(event.target.value))}
+            >
+              {adapters.data
+                ?.find(({ id }) => id === (newFileAgent || detail.data.configSet.enabledAgents[0]))
+                ?.surfaces
+                .filter(({ reserved }) => !reserved)
+                .map((surface, index) => (
+                  <option key={`${surface.root}-${surface.pattern}`} value={index}>
+                    {surface.root} · {surface.pattern}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <div className="grow">
+            <Field label="Relative path">
+              <input name="relativePath" placeholder="settings.json" required />
+            </Field>
+          </div>
+          <MagneticButton className="btn btn-primary" type="submit">
+            Create
+          </MagneticButton>
+        </form>
+      )}
+      {actionError !== undefined && <ErrorNotice error={actionError} />}
+      <div className="editor-shell">
+        <aside className="file-tree">
+          {[...filesByAgent.entries()].map(([agentId, files]) => (
+            <section key={agentId}>
+              <h3 className="eyebrow">{agentId}</h3>
+              {files.map((file) => {
+                const FileIcon = file.utf8 ? FileCode : Database;
+                const active = file.id === selectedFileId;
+                return (
+                  <button
+                    className={active ? "selected" : ""}
+                    key={file.id}
+                    onClick={() => setSelectedFileId(file.id)}
+                  >
+                    {active && (
+                      <motion.span
+                        className="file-active"
+                        layoutId="file-active"
+                        style={{
+                          position: "absolute",
+                          inset: "0 auto 0 0",
+                          width: 2,
+                          background: "var(--volt)",
+                        }}
+                      />
+                    )}
+                    <FileIcon size={15} strokeWidth={1.5} aria-hidden="true" />
+                    <span>
+                      <strong>{file.relativePath.split("/").at(-1)}</strong>
+                      <small>{file.root}/{file.relativePath}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </section>
+          ))}
+          {detail.data.files.length === 0 && (
+            <p className="muted tree-empty">No native files yet.</p>
+          )}
+        </aside>
+        <main className="editor-main">
+          {!selected && (
+            <Empty
+              title="Select or create a file"
+              hint="Each file keeps an independent Monaco model and undo history."
+            />
+          )}
+          {selected && selected.utf8 && selected.size <= MONACO_LIMIT && adapter && (
+            <TextFileEditor
+              key={selected.id}
+              configSetId={configSetId}
+              initialRevision={detail.data.configSet.draftRevision}
+              file={selected}
+              adapter={adapter}
+            />
+          )}
+          {selected && (!selected.utf8 || selected.size > MONACO_LIMIT) && (
+            <BinaryFilePanel
+              configSetId={configSetId}
+              revision={detail.data.configSet.draftRevision}
+              file={selected}
+            />
+          )}
+        </main>
+      </div>
+    </Page>
+  );
 }

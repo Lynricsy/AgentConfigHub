@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from "react";
-import { motion } from "motion/react";
+import { motion, useIsPresent } from "motion/react";
 import { KineticTitle } from "../fx/kinetic-title.js";
 
 export function Page({
@@ -29,6 +29,7 @@ export function Page({
 }
 
 export function RouteTransition({ children }: { children: ReactNode }): ReactElement {
+  const isPresent = useIsPresent();
   return (
     <motion.div
       initial={{ opacity: 0, y: 14, clipPath: "inset(0 0 100% 0)" }}
@@ -36,6 +37,8 @@ export function RouteTransition({ children }: { children: ReactNode }): ReactEle
       exit={{ opacity: 0, y: -10, clipPath: "inset(0 0 100% 0)" }}
       transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
       style={{ height: "100%" }}
+      inert={isPresent ? undefined : true}
+      aria-hidden={isPresent ? undefined : true}
     >
       {children}
     </motion.div>

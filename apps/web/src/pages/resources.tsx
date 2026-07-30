@@ -2,11 +2,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { z } from "zod";
+import { Download, FileText, Package } from "lucide-react";
 
 import { AgentId } from "@agent-config-hub/protocol";
 
 import { ConfigSetDetail, ConfigSetList, ResourceList, api, mutate, uploadBlob } from "../api.js";
 import { ErrorNotice } from "../auth.js";
+import { Chip, Empty, Field } from "../ui/bits.js";
+import { MagneticButton } from "../ui/magnetic.js";
+import { Page } from "../ui/page.js";
 
 const ResourceCreated = z.object({ id: z.string(), revisionId: z.string() });
 const ResourceRevised = z.object({ revisionId: z.string() });
@@ -142,45 +146,178 @@ export function ResourcesPage() {
     ]);
   };
 
-  return <div className="page-frame">
-    <header className="page-header"><div><p className="eyebrow">Shared library</p><h1>Resources</h1><p>Ordered instructions and portable skill file trees, revisioned independently.</p></div><button className="primary" onClick={() => setCreating((value) => !value)}>{creating ? "Cancel" : "New resource"}</button></header>
-    {creating && <form className="panel resource-form" onSubmit={createSubmit}>
-      <div className="form-row"><label>Kind<select name="kind"><option value="instruction">Instruction</option><option value="skill">Skill</option></select></label><label>Name<input name="name" required /></label><label>Slug<input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required /></label></div>
-      <label>Instruction Markdown<textarea name="markdown" rows={5} placeholder="Used for instruction resources; ignored for skills." /></label>
-      <label>Skill directory<DirectoryInput name="files" /></label>
-      {actionError?.action === "create" && <ErrorNotice error={actionError.error} />}<button className="primary" disabled={pendingAction === "create"}>Create revision</button>
-    </form>}
-    <div className="split-view">
-      <section className="resource-list panel">
-        {resources.data?.resources.map((resource) => <button key={resource.id} className={selectedId === resource.id ? "selected" : ""} onClick={() => setSelectedId(resource.id)}>
-          <span className="resource-kind">{resource.kind === "instruction" ? "INS" : "SKL"}</span><span><strong>{resource.name}</strong><small>{resource.slug} · revision {resource.revisionNumber}</small></span>
-        </button>)}
-        {resources.data?.resources.length === 0 && <div className="empty-state"><strong>No shared resources</strong></div>}
-      </section>
-      <section className="resource-detail panel">
-        {!selected && <div className="empty-state"><strong>Select a resource</strong><p>Inspect its immutable current revision and bindings.</p></div>}
-        {selected && <>
-          <div className="card-top"><span className="status-chip">{selected.kind}</span><span className="mono">r{selected.revisionNumber}</span></div><h2>{selected.name}</h2>
-          <div className="file-list">{selectedFiles.map((file) => <a key={file.relativePath} href={`/api/v1/blobs/${file.blobSha256}`} download><span>{file.relativePath}</span><small>{file.mediaType}</small></a>)}</div>
-          <form className="stack compact-form" onSubmit={(event) => {
-            event.preventDefault();
-            const input = event.currentTarget.elements.namedItem("replacement");
-            if (input instanceof HTMLInputElement && input.files?.length) {
-              const files = [...input.files];
-              event.currentTarget.reset();
-              void replaceResource({ resourceId: selected.id, revisionId: selected.revisionId, files });
-            }
-          }}><label>Replace complete file tree{selected.kind === "skill" ? <DirectoryInput name="replacement" required /> : <input name="replacement" type="file" multiple required />}</label>{actionError?.action === "replace" && <ErrorNotice error={actionError.error} />}<button disabled={pendingAction === "replace"}>Create new revision</button></form>
-          <hr />
-          <form className="stack compact-form" onSubmit={(event) => void setSelection(event)}>
-            <h3>Apply to configuration</h3>
-            <label>Configuration<select value={selectedConfigId ?? ""} onChange={(event) => setSelectedConfigId(event.target.value)} required><option value="">Choose…</option>{configSets.data?.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}</select></label>
-            <label>Order<input name="sortOrder" type="number" min={0} defaultValue={0} /></label>
-            <div className="check-grid">{AgentId.options.map((agent) => <label className="check" key={agent}><input name="agents" type="checkbox" value={agent} />{agent}</label>)}</div>
-            <button disabled={!selectedConfig.data}>Save selection</button>
-          </form>
-        </>}
-      </section>
-    </div>
-  </div>;
+  return (
+    <Page
+      index="03"
+      eyebrow="Shared library"
+      title="Resources"
+      lede="Ordered instructions and portable skill file trees, revisioned independently."
+      actions={(
+        <MagneticButton
+          className="btn btn-primary"
+          onClick={() => setCreating((value) => !value)}
+          type="button"
+        >
+          {creating ? "Cancel" : "New resource"}
+        </MagneticButton>
+      )}
+    >
+      {creating && (
+        <form className="panel resource-form" onSubmit={createSubmit}>
+          <div className="form-row">
+            <Field label="Kind">
+              <select name="kind">
+                <option value="instruction">Instruction</option>
+                <option value="skill">Skill</option>
+              </select>
+            </Field>
+            <Field label="Name">
+              <input name="name" required />
+            </Field>
+            <Field label="Slug">
+              <input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required />
+            </Field>
+          </div>
+          <Field label="Instruction Markdown">
+            <textarea
+              name="markdown"
+              rows={5}
+              placeholder="Used for instruction resources; ignored for skills."
+            />
+          </Field>
+          <Field label="Skill directory">
+            <DirectoryInput name="files" />
+          </Field>
+          {actionError?.action === "create" && <ErrorNotice error={actionError.error} />}
+          <MagneticButton
+            className="btn btn-primary"
+            disabled={pendingAction === "create"}
+            type="submit"
+          >
+            Create revision
+          </MagneticButton>
+        </form>
+      )}
+
+      <div className="split">
+        <section className="resource-list">
+          {resources.data?.resources.map((resource) => (
+            <button
+              key={resource.id}
+              className={selectedId === resource.id ? "selected" : ""}
+              onClick={() => setSelectedId(resource.id)}
+              type="button"
+            >
+              {resource.kind === "instruction"
+                ? <FileText size={15} strokeWidth={1.5} aria-hidden="true" />
+                : <Package size={15} strokeWidth={1.5} aria-hidden="true" />}
+              <span>
+                <strong>{resource.name}</strong>
+                <small>{resource.slug} · revision {resource.revisionNumber}</small>
+              </span>
+            </button>
+          ))}
+          {resources.data?.resources.length === 0 && <Empty title="No shared resources" />}
+        </section>
+
+        <section className="resource-detail">
+          {!selected && (
+            <Empty
+              title="Select a resource"
+              hint="Inspect its immutable current revision and bindings."
+            />
+          )}
+          {selected && (
+            <>
+              <div className="card-top">
+                <Chip>{selected.kind}</Chip>
+                <span className="mono">r{selected.revisionNumber}</span>
+              </div>
+              <h2 className="display-sm">{selected.name}</h2>
+
+              <div className="file-list">
+                {selectedFiles.map((file) => (
+                  <a
+                    key={file.relativePath}
+                    href={`/api/v1/blobs/${file.blobSha256}`}
+                    download
+                  >
+                    <Download size={15} strokeWidth={1.5} aria-hidden="true" />
+                    <span>{file.relativePath}</span>
+                    <small>{file.mediaType}</small>
+                  </a>
+                ))}
+              </div>
+
+              <form
+                className="stack compact-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const input = event.currentTarget.elements.namedItem("replacement");
+                  if (input instanceof HTMLInputElement && input.files?.length) {
+                    const files = [...input.files];
+                    event.currentTarget.reset();
+                    void replaceResource({
+                      resourceId: selected.id,
+                      revisionId: selected.revisionId,
+                      files,
+                    });
+                  }
+                }}
+              >
+                <Field label="Replace complete file tree">
+                  {selected.kind === "skill"
+                    ? <DirectoryInput name="replacement" required />
+                    : <input name="replacement" type="file" multiple required />}
+                </Field>
+                {actionError?.action === "replace" && <ErrorNotice error={actionError.error} />}
+                <button
+                  className="btn"
+                  disabled={pendingAction === "replace"}
+                  type="submit"
+                >
+                  Create new revision
+                </button>
+              </form>
+
+              <hr />
+
+              <form
+                className="stack compact-form"
+                onSubmit={(event) => void setSelection(event)}
+              >
+                <h3>Apply to configuration</h3>
+                <Field label="Configuration">
+                  <select
+                    value={selectedConfigId ?? ""}
+                    onChange={(event) => setSelectedConfigId(event.target.value)}
+                    required
+                  >
+                    <option value="">Choose…</option>
+                    {configSets.data?.map((set) => (
+                      <option key={set.id} value={set.id}>{set.name}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Order">
+                  <input name="sortOrder" type="number" min={0} defaultValue={0} />
+                </Field>
+                <div className="check-grid">
+                  {AgentId.options.map((agent) => (
+                    <label className="check" key={agent}>
+                      <input name="agents" type="checkbox" value={agent} />
+                      {agent}
+                    </label>
+                  ))}
+                </div>
+                <button className="btn" disabled={!selectedConfig.data} type="submit">
+                  Save selection
+                </button>
+              </form>
+            </>
+          )}
+        </section>
+      </div>
+    </Page>
+  );
 }

@@ -69,6 +69,7 @@ test("administers a configuration through release without retaining one-time sec
   await expect(page.getByText("assets/info.txt", { exact: true })).toBeVisible();
 
   await page.getByRole("link", { name: /Releases/ }).click();
+  await expect(page.getByRole("heading", { name: "Releases", exact: true })).toBeVisible();
   const configuration = page.getByLabel("Configuration");
   const configurationId = await configuration.locator("option").filter({ hasText: "E2E workstation" }).getAttribute("value");
   expect(configurationId).toBeTruthy();
@@ -87,4 +88,36 @@ test("administers a configuration through release without retaining one-time sec
   expect(token).toMatch(/^agch_auto_/);
   await page.getByRole("button", { name: "Clear" }).click();
   await expect(page.getByText(token!, { exact: true })).toHaveCount(0);
+});
+
+test("redesign visual invariants", async ({ page }) => {
+  // server already initialized by first test; navigate to login
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByLabel("Password").fill("correct-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/config-sets$/);
+
+  // six nav links each have visible text + one aria-hidden svg
+  for (const label of ["Configuration", "Resources", "Credentials", "Releases", "Devices", "Settings"]) {
+    const link = page.getByRole("link", { name: new RegExp(label) });
+    await expect(link).toBeVisible();
+    await expect(link.locator("svg[aria-hidden='true']")).toHaveCount(1);
+  }
+
+  // three FX canvas layers are mounted
+  await expect(page.locator("canvas.fx-flow")).toHaveCount(1);
+  await expect(page.locator("canvas.fx-grain")).toHaveCount(1);
+
+  // Monaco switched to ach-void theme (background #080b0e)
+  await page.getByRole("link", { name: /E2E workstation/ }).click();
+  await page.waitForFunction(() => "monaco" in window);
+  await expect.poll(async () => await page.evaluate(
+    () => getComputedStyle(document.querySelector(".monaco-editor")!).backgroundColor,
+  )).toBe("rgb(8, 11, 14)");
+  // if rule lands on child: ".monaco-editor .monaco-editor-background"
+
+  // zero emoji in page body
+  const bodyText = await page.locator("body").innerText();
+  expect(bodyText).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u);
 });

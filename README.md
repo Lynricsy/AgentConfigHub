@@ -83,7 +83,7 @@ The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding 
 ## Architecture
 
 - `apps/server` — Fastify API, SQLite metadata, encrypted blob storage, authentication, and release orchestration
-- `apps/web` — React and Vite single-page administration UI; Lenis smooth scroll on `.route-content`, initialized after AuthGate
+- `apps/web` — React and Vite single-page administration UI; Terminal Brutalism design system (Space Grotesk + JetBrains Mono, `lucide-react` icons, `motion` spring animations); Lenis smooth scroll managed by `AppShell` `useEffect`, disabled under `prefers-reduced-motion`
 - `packages/protocol` — shared Zod wire contracts
 - `packages/adapters` — shared agent validation, rendering, and local path safety
 - `packages/cli` — standalone pull-only npm CLI

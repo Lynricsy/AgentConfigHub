@@ -3,9 +3,13 @@ import type { FormEvent } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
+import { HardDrive, Lock, Shield } from "lucide-react";
 
 import { api, mutate, mutateEmpty } from "../api.js";
 import { ErrorNotice } from "../auth.js";
+import { Field, Panel } from "../ui/bits.js";
+import { MagneticButton } from "../ui/magnetic.js";
+import { Page } from "../ui/page.js";
 
 const StorageStats = z.object({
   blobs: z.number().int().nonnegative(),
@@ -55,12 +59,90 @@ export function SettingsPage() {
     } catch (cause) { setError(cause); }
     finally { setPending(false); }
   };
-  return <div className="page-frame">
-    <header className="page-header"><div><p className="eyebrow">Control plane</p><h1>Settings</h1><p>Security boundaries for this single-instance deployment.</p></div></header>
-    <div className="two-column settings-layout">
-      <form className="panel action-card stack" onSubmit={(event) => void changePassword(event)}><p className="eyebrow">Administrator</p><h2>Change password</h2><label>Current password<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>New password<input name="newPassword" type="password" minLength={12} autoComplete="new-password" required /></label><label className="check"><input name="revokePullTokens" type="checkbox" />Revoke every device and automation token</label>{error !== undefined && <ErrorNotice error={error} />}<button className="primary" disabled={pending}>Change password & sign out</button></form>
-      <section className="panel action-card"><p className="eyebrow">Security posture</p><h2>Storage & delivery</h2><dl><dt>Browser cache</dt><dd>No-store; no persistence</dd><dt>Credential values</dt><dd>Envelope encrypted</dd><dt>Device access</dt><dd>Pull-only bearer tokens</dd><dt>Release outputs</dt><dd>Immutable encrypted blobs</dd><dt>Mutation control</dt><dd>Origin + If-Match</dd></dl></section>
-      <section className="panel action-card stack"><p className="eyebrow">Maintenance</p><h2>Encrypted Blob storage</h2>{storage.data ? <dl><dt>Blobs</dt><dd>{storage.data.blobs}</dd><dt>Plaintext bytes</dt><dd>{storage.data.plaintextBytes.toLocaleString()}</dd><dt>Unreferenced</dt><dd>{storage.data.unreferencedBlobs}</dd></dl> : <p className="muted">Loading storage statistics...</p>}{gcResult && <p className="notice success">Scanned {gcResult.scanned}; deleted {gcResult.deleted} beyond the seven-day grace period.</p>}{gcError !== undefined && <ErrorNotice error={gcError} />}<button disabled={gcPending} onClick={() => void runGc()}>{gcPending ? "Running GC..." : "Run Blob GC"}</button></section>
-    </div>
-  </div>;
+  return (
+    <Page
+      index="07"
+      eyebrow="Control plane"
+      title="Settings"
+      lede="Security boundaries for this single-instance deployment."
+    >
+      <div className="card-grid settings-layout">
+        <Panel eyebrow="Administrator" title="Change password" icon={Lock}>
+          <form className="stack" onSubmit={(event) => void changePassword(event)}>
+            <Field label="Current password">
+              <input
+                name="currentPassword"
+                type="password"
+                autoComplete="current-password"
+                required
+              />
+            </Field>
+            <Field label="New password">
+              <input
+                name="newPassword"
+                type="password"
+                minLength={12}
+                autoComplete="new-password"
+                required
+              />
+            </Field>
+            <label className="check">
+              <input name="revokePullTokens" type="checkbox" />
+              Revoke every device and automation token
+            </label>
+            {error !== undefined && <ErrorNotice error={error} />}
+            <MagneticButton
+              className="btn btn-primary"
+              disabled={pending}
+              type="submit"
+            >
+              Change password & sign out
+            </MagneticButton>
+          </form>
+        </Panel>
+
+        <Panel eyebrow="Security posture" title="Storage & delivery" icon={Shield}>
+          <dl className="mono">
+            <dt>Browser cache</dt>
+            <dd>No-store; no persistence</dd>
+            <dt>Credential values</dt>
+            <dd>Envelope encrypted</dd>
+            <dt>Device access</dt>
+            <dd>Pull-only bearer tokens</dd>
+            <dt>Release outputs</dt>
+            <dd>Immutable encrypted blobs</dd>
+            <dt>Mutation control</dt>
+            <dd>Origin + If-Match</dd>
+          </dl>
+        </Panel>
+
+        <Panel eyebrow="Maintenance" title="Encrypted Blob storage" icon={HardDrive}>
+          {storage.data ? (
+            <dl className="mono">
+              <dt>Blobs</dt>
+              <dd className="display-sm mono">{storage.data.blobs}</dd>
+              <dt>Plaintext bytes</dt>
+              <dd className="display-sm mono">
+                {storage.data.plaintextBytes.toLocaleString()}
+              </dd>
+              <dt>Unreferenced</dt>
+              <dd className="display-sm mono">{storage.data.unreferencedBlobs}</dd>
+            </dl>
+          ) : (
+            <p className="muted">Loading storage statistics...</p>
+          )}
+          {gcResult && (
+            <div className="notice notice-ok">
+              Scanned {gcResult.scanned}; deleted {gcResult.deleted} beyond the seven-day grace
+              period.
+            </div>
+          )}
+          {gcError !== undefined && <ErrorNotice error={gcError} />}
+          <button className="btn" disabled={gcPending} onClick={() => void runGc()}>
+            {gcPending ? "Running GC..." : "Run Blob GC"}
+          </button>
+        </Panel>
+      </div>
+    </Page>
+  );
 }
