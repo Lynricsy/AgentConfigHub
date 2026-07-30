@@ -37,3 +37,4 @@ blobs/
 *.swp
 .DS_Store
 Thumbs.db
+.agent-logs/
