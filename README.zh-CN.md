@@ -83,7 +83,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 ## 架构
 
 - `apps/server` — Fastify API、SQLite 元数据、加密 Blob 存储、认证与发布编排
-- `apps/web` — React + Vite 单页管理界面
+- `apps/web` — React + Vite 单页管理界面；Lenis 平滑滚动作用于 `.route-content`，在 AuthGate 通过后初始化
 - `packages/protocol` — 共享 Zod 线路协议
 - `packages/adapters` — 共享 Agent 校验、渲染与本地路径安全
 - `packages/cli` — 独立、只拉取的 npm CLI
