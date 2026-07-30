@@ -1,5 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { FlowField } from "./fx/flow-field.js";
+import { Grain } from "./fx/grain.js";
 import { AuthGate, LoginPage, SetupPage } from "./auth.js";
 import { ConfigEditorPage } from "./pages/config-editor.js";
 import { ConfigSetListPage } from "./pages/config-set-list.js";
@@ -11,19 +13,24 @@ import { ResourcesPage } from "./pages/resources.js";
 import { AppShell } from "./shell.js";
 
 export function App() {
-  return <Routes>
-    <Route path="/setup" element={<SetupPage />} />
-    <Route path="/login" element={<LoginPage />} />
-    <Route element={<AuthGate><AppShell /></AuthGate>}>
-      <Route index element={<Navigate to="/config-sets" replace />} />
-      <Route path="/config-sets" element={<ConfigSetListPage />} />
-      <Route path="/config-sets/:configSetId" element={<ConfigEditorPage />} />
-      <Route path="/resources" element={<ResourcesPage />} />
-      <Route path="/credentials" element={<CredentialsPage />} />
-      <Route path="/releases" element={<ReleasesPage />} />
-      <Route path="/devices" element={<DevicesPage />} />
-      <Route path="/settings" element={<SettingsPage />} />
-    </Route>
-    <Route path="*" element={<Navigate to="/config-sets" replace />} />
-  </Routes>;
+  return <>
+    <FlowField />
+    <div className="fx-vignette" aria-hidden="true" />
+    <Grain />
+    <Routes>
+      <Route path="/setup" element={<SetupPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route element={<AuthGate><AppShell /></AuthGate>}>
+        <Route index element={<Navigate to="/config-sets" replace />} />
+        <Route path="/config-sets" element={<ConfigSetListPage />} />
+        <Route path="/config-sets/:configSetId" element={<ConfigEditorPage />} />
+        <Route path="/resources" element={<ResourcesPage />} />
+        <Route path="/credentials" element={<CredentialsPage />} />
+        <Route path="/releases" element={<ReleasesPage />} />
+        <Route path="/devices" element={<DevicesPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/config-sets" replace />} />
+    </Routes>
+  </>;
 }

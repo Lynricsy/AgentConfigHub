@@ -1110,13 +1110,38 @@ button, input, select, textarea { font: inherit; }
   .rail-brand { padding: .9rem .6rem; justify-content: center; }
   .rail-brand span { display: none; }
   .rail-link { justify-content: center; padding: .9rem; }
-  .rail-link span:not(.rail-index) { display: none; }
+  .rail-link .rail-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border-width: 0;
+  }
   .rail-index { display: none; }
   .rail-foot { align-items: center; padding: .75rem .5rem; }
   .rail-foot-status span { display: none; }
-  .auth-stage { grid-template-columns: 1fr; }
-  .auth-art { display: none; }
-  .auth-panel { border-left: none; border-top: 1px solid var(--line); }
+
+}
+
+
+@media (max-width: 900px) {
+  .auth-stage {
+    grid-template-columns: 1fr;
+  }
+  .auth-panel {
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+  /* keep only eyebrow + first title, hide secondary art content */
+  .auth-art-icon,
+  .auth-art-extra,
+  .auth-marquee {
+    display: none;
+  }
 }
 
 @media (max-width: 720px) {

@@ -1,8 +1,28 @@
+import Lenis from "lenis";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useMemo, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
+import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
+import {
+  BookOpen,
+  Cpu,
+  KeyRound,
+  Layers,
+  LogOut,
+  PackageCheck,
+  Radio,
+  Settings2,
+  ShieldAlert,
+  Zap,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { ConfigSetList, api, mutateEmpty } from "./api.js";
+import { KineticTitle } from "./fx/kinetic-title.js";
+import { RouteTransition } from "./ui/page.js";
+
+/* ── Status context (signature unchanged — config-editor depends on it) ── */
 
 interface StatusContextValue {
   blockingDiagnostics: number;
@@ -17,20 +37,47 @@ export function useAppStatus(): StatusContextValue {
   return value;
 }
 
-const navigation = [
-  { to: "/config-sets", label: "Configuration", mark: "CF" },
-  { to: "/resources", label: "Resources", mark: "RS" },
-  { to: "/credentials", label: "Credentials", mark: "CR" },
-  { to: "/releases", label: "Releases", mark: "RL" },
-  { to: "/devices", label: "Devices", mark: "DV" },
-  { to: "/settings", label: "Settings", mark: "ST" },
-] as const;
+/* ── Navigation ────────────────────────────────────────────────────────── */
+
+const navigation: { to: string; label: string; icon: LucideIcon }[] = [
+  { to: "/config-sets",  label: "Configuration", icon: Layers },
+  { to: "/resources",    label: "Resources",     icon: BookOpen },
+  { to: "/credentials",  label: "Credentials",   icon: KeyRound },
+  { to: "/releases",     label: "Releases",      icon: PackageCheck },
+  { to: "/devices",      label: "Devices",       icon: Cpu },
+  { to: "/settings",     label: "Settings",      icon: Settings2 },
+];
+
+/* ── Counter — flips number with spring animation ──────────────────────── */
+
+function Counter({ value, className }: { value: string; className?: string | undefined }) {
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={value}
+        className={className}
+        initial={{ y: -8, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 8, opacity: 0 }}
+        transition={{ duration: 0.18 }}
+      >
+        {value}
+      </motion.span>
+    </AnimatePresence>
+  );
+}
+
+/* ── AppShell ───────────────────────────────────────────────────────────── */
 
 export function AppShell() {
   const [blockingDiagnostics, setBlockingDiagnostics] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const outlet = useOutlet();
+  const reduceMotion = useReducedMotion();
+
+  // ── data (unchanged) ────────────────────────────────────────────────────
   const configSets = useQuery({
     queryKey: ["config-sets"],
     queryFn: () => api("/api/v1/config-sets", ConfigSetList),
@@ -50,34 +97,123 @@ export function AppShell() {
   });
   const status = useMemo(() => ({ blockingDiagnostics, setBlockingDiagnostics }), [blockingDiagnostics]);
 
-  return <StatusContext.Provider value={status}>
-    <div className="app-shell">
-      <aside className="sidebar">
-        <NavLink to="/config-sets" className="logo">
-          <span className="brand-mark compact">A</span>
-          <span><strong>AgentConfigHub</strong><small>Control plane</small></span>
-        </NavLink>
-        <nav className="main-nav" aria-label="Main navigation">
-          {navigation.map((item) => <NavLink key={item.to} to={item.to} className={({ isActive }) => isActive ? "active" : ""}>
-            <span className="nav-mark">{item.mark}</span><span>{item.label}</span>
-          </NavLink>)}
-        </nav>
-        <div className="sidebar-foot">
-          <span className="health-dot" /> Server connected
-          <button className="text-button" onClick={() => logout.mutate()} disabled={logout.isPending}>Sign out</button>
-        </div>
-      </aside>
-      <section className="workspace">
-        <header className="status-bar">
-          <div>
-            <span className={dirtyCount ? "status-chip warning" : "status-chip"}>{dirtyCount} dirty</span>
-            <span className="status-chip">{statusConfig?.currentReleaseNumber ? `r${statusConfig.currentReleaseNumber}` : "No release"}</span>
-            <span className={blockingDiagnostics ? "status-chip danger" : "status-chip"}>{blockingDiagnostics} blocking</span>
+  // ── Lenis smooth scroll (migrated from main.tsx) ────────────────────────
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    const content = contentRef.current;
+    if (!wrapper || !content || reduceMotion) return;
+    const lenis = new Lenis({ wrapper, content });
+    let frame = requestAnimationFrame(function tick(time: number) {
+      lenis.raf(time);
+      frame = requestAnimationFrame(tick);
+    });
+    return () => { cancelAnimationFrame(frame); lenis.destroy(); };
+  }, [reduceMotion]);
+
+  return (
+    <StatusContext.Provider value={status}>
+      <div className="app-shell">
+
+        {/* ── Rail ─────────────────────────────────────────────────────── */}
+        <aside className="rail">
+          <NavLink to="/config-sets" className="rail-brand">
+            <Zap size={20} strokeWidth={1.5} aria-hidden="true" />
+            <span>
+              <strong>AgentConfigHub</strong>
+              <small>Control plane</small>
+            </span>
+          </NavLink>
+
+          <nav className="rail-nav" aria-label="Main navigation">
+            {navigation.map((item, i) => {
+              const Icon = item.icon;
+              const idx = String(i + 1).padStart(2, "0");
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={({ isActive }) => isActive ? "rail-link active" : "rail-link"}
+                >
+                  {({ isActive }) => <>
+                    {isActive && (
+                      <motion.span
+                        layoutId="rail-active"
+                        className="rail-active"
+                        transition={{ type: "spring", stiffness: 320, damping: 30 }}
+                      />
+                    )}
+                    <span className="rail-index" aria-hidden="true">{idx}</span>
+                    <Icon size={15} strokeWidth={1.5} aria-hidden="true" />
+                    <span className="rail-label">{item.label}</span>
+                  </>}
+                </NavLink>
+              );
+            })}
+          </nav>
+
+          <div className="rail-foot">
+            <div className="rail-foot-status">
+              <Radio size={13} strokeWidth={1.5} aria-hidden="true" />
+              <span>Server connected</span>
+            </div>
+            <button
+              className="btn btn-ghost"
+              onClick={() => logout.mutate()}
+              disabled={logout.isPending}
+            >
+              <LogOut size={13} strokeWidth={1.5} aria-hidden="true" />
+              Sign out
+            </button>
           </div>
-          <span className="status-context">{statusConfig?.name ?? "Administration"}</span>
-        </header>
-        <div className="route-content"><Outlet /></div>
-      </section>
-    </div>
-  </StatusContext.Provider>;
+        </aside>
+
+        {/* ── Workspace ────────────────────────────────────────────────── */}
+        <section className="workspace">
+
+          {/* ── Telemetry bar ──────────────────────────────────────────── */}
+          <header className="telemetry">
+            <div className="telemetry-meters">
+              <div className="telemetry-meter">
+                <label>DRAFTS</label>
+                <span className="value" style={dirtyCount > 0 ? { color: "var(--warn)" } : undefined}>
+                  <Counter value={String(dirtyCount)} />
+                </span>
+              </div>
+              <div className="telemetry-meter">
+                <label>RELEASE</label>
+                <span className="value">
+                  <Counter value={statusConfig?.currentReleaseNumber ? `r${statusConfig.currentReleaseNumber}` : "—"} />
+                </span>
+              </div>
+              <div className="telemetry-meter">
+                <label>BLOCKING</label>
+                <span className="value" style={blockingDiagnostics > 0 ? { color: "var(--danger)" } : undefined}>
+                  {blockingDiagnostics > 0 && <ShieldAlert size={11} strokeWidth={1.5} aria-hidden="true" />}
+                  <Counter value={String(blockingDiagnostics)} />
+                </span>
+              </div>
+            </div>
+            <KineticTitle
+              text={statusConfig?.name ?? "Administration"}
+              className="mono"
+            />
+          </header>
+
+          {/* ── Route content + Lenis wrapper ──────────────────────────── */}
+          <div className="route-content" ref={wrapperRef}>
+            <div className="route-scroll-content" ref={contentRef}>
+              <AnimatePresence mode="wait" initial={false}>
+                <RouteTransition key={location.pathname}>
+                  {outlet}
+                </RouteTransition>
+              </AnimatePresence>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </StatusContext.Provider>
+  );
 }
