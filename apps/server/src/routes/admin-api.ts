@@ -83,7 +83,7 @@ const StoredResourceSelection = z.object({
   resourceId: z.string(),
   revisionId: z.string(),
   sortOrder: z.number().int().nonnegative(),
-  selectedAgents: z.string(),
+  agentId: AgentId,
 });
 const StoredRelease = z.object({
   id: z.string(),
@@ -183,14 +183,12 @@ export function registerAdminApiRoutes(
       const selectedResources = dependencies.database.native.prepare(`
         SELECT selected.resource_id AS resourceId,
           COALESCE(selected.resource_revision_id, resources.current_revision_id) AS revisionId,
-          selected.sort_order AS sortOrder, selected.selected_agents AS selectedAgents
+          selected.agent_id AS agentId, selected.sort_order AS sortOrder
         FROM config_set_resources selected
         JOIN resources ON resources.id = selected.resource_id
-        WHERE selected.config_set_id = ? ORDER BY selected.sort_order, selected.resource_id
-      `).all(request.params.configSetId).map((row) => {
-        const selection = StoredResourceSelection.parse(row);
-        return { ...selection, selectedAgents: parseAgentJson(selection.selectedAgents) };
-      });
+        WHERE selected.config_set_id = ?
+        ORDER BY selected.agent_id, selected.sort_order, selected.resource_id
+      `).all(request.params.configSetId).map((row) => StoredResourceSelection.parse(row));
       const serializedConfigSet = serializeConfigSet(configSet);
       return reply.header("ETag", `"${serializedConfigSet.draftRevision}"`).send({
         configSet: serializedConfigSet,
@@ -358,33 +356,36 @@ export function registerAdminApiRoutes(
       };
     },
   );
-  server.put<{ Params: { configSetId: string; resourceId: string } }>(
-    "/api/v1/config-sets/:configSetId/resources/:resourceId",
+  server.put<{
+    Params: { configSetId: string; agentId: string; resourceId: string };
+  }>(
+    "/api/v1/config-sets/:configSetId/configs/:agentId/resources/:resourceId",
     protectedMutation,
     async (request, reply) => {
       assertOrigin(request);
-      const body = z.object({
-        sortOrder: z.number().int().nonnegative(),
-        selectedAgents: AgentId.array(),
-      }).strict().parse(request.body);
-      const revision = dependencies.resources.selectForConfigSet({
+      const body = z.object({ sortOrder: z.number().int().nonnegative() }).strict().parse(request.body);
+      const revision = dependencies.resources.selectAgentForConfigSet({
         configSetId: request.params.configSetId,
         expectedRevision: expectedDraftRevision(request),
         resourceId: request.params.resourceId,
-        ...body,
+        agentId: AgentId.parse(request.params.agentId),
+        sortOrder: body.sortOrder,
       });
       return reply.header("ETag", `"${revision}"`).send({ revision });
     },
   );
-  server.delete<{ Params: { configSetId: string; resourceId: string } }>(
-    "/api/v1/config-sets/:configSetId/resources/:resourceId",
+  server.delete<{
+    Params: { configSetId: string; agentId: string; resourceId: string };
+  }>(
+    "/api/v1/config-sets/:configSetId/configs/:agentId/resources/:resourceId",
     protectedMutation,
     async (request, reply) => {
       assertOrigin(request);
-      const revision = dependencies.resources.deselectForConfigSet({
+      const revision = dependencies.resources.deselectAgentForConfigSet({
         configSetId: request.params.configSetId,
-        resourceId: request.params.resourceId,
         expectedRevision: expectedDraftRevision(request),
+        resourceId: request.params.resourceId,
+        agentId: AgentId.parse(request.params.agentId),
       });
       return reply.header("ETag", `"${revision}"`).send({ revision });
     },

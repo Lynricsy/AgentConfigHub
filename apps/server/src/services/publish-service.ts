@@ -52,7 +52,7 @@ interface SelectedResourceRow {
   revisionId: string;
   pinnedRevisionId: string | null;
   sortOrder: number;
-  selectedAgents: string;
+  agentId: AgentId;
 }
 
 interface ResourceFileRow extends SharedResourceFile {
@@ -198,8 +198,7 @@ export class PublishService {
       const instructions: { slug: string; markdown: string }[] = [];
       const skills: { name: string; files: SharedResourceFile[] }[] = [];
       for (const resource of resources) {
-        const selectedAgents = AgentId.array().parse(JSON.parse(resource.selectedAgents));
-        if (!selectedAgents.includes(agentId)) continue;
+        if (resource.agentId !== agentId) continue;
         const files = resourceFiles.filter(({ resourceRevisionId }) => resourceRevisionId === resource.revisionId);
         if (resource.kind === "instruction") {
           const markdown = files.find(({ relativePath }) => relativePath.toLocaleLowerCase("en-US").endsWith(".md"));
@@ -478,11 +477,12 @@ export class PublishService {
         });
       }
       const insertResource = this.#database.native.prepare(`
-        INSERT INTO release_resource_revisions (release_id, resource_revision_id, sort_order, selected_agents)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO release_resource_revisions (
+          release_id, resource_revision_id, agent_id, sort_order
+        ) VALUES (?, ?, ?, ?)
       `);
       for (const resource of resources) insertResource.run(
-        releaseId, resource.revisionId, resource.sortOrder, resource.selectedAgents,
+        releaseId, resource.revisionId, resource.agentId, resource.sortOrder,
       );
       const insertBinding = this.#database.native.prepare(`
         INSERT INTO release_secret_bindings (
@@ -604,9 +604,10 @@ export class PublishService {
       this.#database.native.prepare("DELETE FROM config_set_resources WHERE config_set_id = ?").run(configSetId);
       this.#database.native.prepare(`
         INSERT INTO config_set_resources (
-          config_set_id, resource_id, resource_revision_id, sort_order, selected_agents
+          config_set_id, resource_id, agent_id, resource_revision_id, sort_order
         )
-        SELECT ?, revisions.resource_id, frozen.resource_revision_id, frozen.sort_order, frozen.selected_agents
+        SELECT ?, revisions.resource_id, frozen.agent_id,
+          frozen.resource_revision_id, frozen.sort_order
         FROM release_resource_revisions frozen
         JOIN resource_revisions revisions ON revisions.id = frozen.resource_revision_id
         WHERE frozen.release_id = ?
@@ -689,8 +690,10 @@ export class PublishService {
         FROM release_secret_bindings WHERE release_id = ?
       `).run(releaseId, sourceReleaseId);
       this.#database.native.prepare(`
-        INSERT INTO release_resource_revisions
-        SELECT ?, resource_revision_id, sort_order, selected_agents
+        INSERT INTO release_resource_revisions (
+          release_id, resource_revision_id, agent_id, sort_order
+        )
+        SELECT ?, resource_revision_id, agent_id, sort_order
         FROM release_resource_revisions WHERE release_id = ?
       `).run(releaseId, sourceReleaseId);
       this.#database.native.prepare(`
@@ -736,12 +739,12 @@ export class PublishService {
     return this.#database.native.prepare(`
       SELECT resources.id AS resourceId, resources.kind, resources.slug, resources.name,
         COALESCE(selected.resource_revision_id, resources.current_revision_id) AS revisionId,
-        selected.resource_revision_id AS pinnedRevisionId, selected.sort_order AS sortOrder,
-        selected.selected_agents AS selectedAgents
+        selected.resource_revision_id AS pinnedRevisionId, selected.agent_id AS agentId,
+        selected.sort_order AS sortOrder
       FROM config_set_resources selected
       JOIN resources ON resources.id = selected.resource_id
       WHERE selected.config_set_id = ?
-      ORDER BY selected.sort_order, resources.id
+      ORDER BY selected.agent_id, selected.sort_order, resources.id
     `).all(configSetId) as SelectedResourceRow[];
   }
 

@@ -37,21 +37,51 @@ describe("ResourceService", () => {
     });
     const configSets = new ConfigSetService(database);
     const configSet = configSets.create({ name: "Work", slug: "work-resource", agentId: "claude-code" });
-    const selectedRevision = resources.selectForConfigSet({
+    let revision = configSets.createAgentConfig({
       configSetId: configSet.id,
-      expectedRevision: 1,
-      resourceId: resource.id,
-      sortOrder: 0,
-      selectedAgents: ["claude-code"],
+      expectedRevision: configSet.revision,
+      agentId: "omp",
     });
+    revision = resources.selectAgentForConfigSet({
+      configSetId: configSet.id,
+      expectedRevision: revision,
+      resourceId: resource.id,
+      agentId: "claude-code",
+      sortOrder: 0,
+    });
+    revision = resources.selectAgentForConfigSet({
+      configSetId: configSet.id,
+      expectedRevision: revision,
+      resourceId: resource.id,
+      agentId: "omp",
+      sortOrder: 7,
+    });
+    revision = resources.deselectAgentForConfigSet({
+      configSetId: configSet.id,
+      expectedRevision: revision,
+      resourceId: resource.id,
+      agentId: "omp",
+    });
+    const selections = database.native.prepare(`
+      SELECT agent_id AS agentId, sort_order AS sortOrder
+      FROM config_set_resources
+      WHERE config_set_id = ? AND resource_id = ?
+      ORDER BY agent_id
+    `).all(configSet.id, resource.id);
+    expect(selections).toEqual([{ agentId: "claude-code", sortOrder: 0 }]);
     const nextRevisionId = resources.mutate({
       resourceId: resource.id,
       expectedRevisionId: resource.revisionId,
       files: [{ relativePath: "instruction.md", blobSha256: secondBlob.sha256, mediaType: "text/markdown", executable: false }],
     });
     expect(nextRevisionId).not.toBe(resource.revisionId);
+    expect(() => resources.mutate({
+      resourceId: resource.id,
+      expectedRevisionId: resource.revisionId,
+      files: [{ relativePath: "instruction.md", blobSha256: firstBlob.sha256, mediaType: "text/markdown", executable: false }],
+    })).toThrow(expect.objectContaining({ code: "REVISION_CONFLICT" }));
     expect(database.native.prepare("SELECT draft_revision AS revision FROM config_sets WHERE id = ?")
-      .get(configSet.id)).toEqual({ revision: selectedRevision + 1 });
+      .get(configSet.id)).toEqual({ revision: revision + 1 });
     expect(database.native.prepare("SELECT COUNT(*) AS count FROM resource_revisions WHERE resource_id = ?")
       .get(resource.id)).toEqual({ count: 2 });
     database.native.close();

@@ -106,20 +106,22 @@ describe("PublishService", () => {
         { relativePath: "assets/data.bin", blobSha256: skillAttachment.sha256, mediaType: "application/octet-stream", executable: false },
       ],
     });
-    revision = resources.selectForConfigSet({
-      configSetId: configSet.id,
-      expectedRevision: revision,
-      resourceId: instruction.id,
-      sortOrder: 0,
-      selectedAgents: ["claude-code", "omp"],
-    });
-    revision = resources.selectForConfigSet({
-      configSetId: configSet.id,
-      expectedRevision: revision,
-      resourceId: skill.id,
-      sortOrder: 1,
-      selectedAgents: ["claude-code", "omp"],
-    });
+    for (const agentId of ["claude-code", "omp"] as const) {
+      revision = resources.selectAgentForConfigSet({
+        configSetId: configSet.id,
+        expectedRevision: revision,
+        resourceId: instruction.id,
+        agentId,
+        sortOrder: 0,
+      });
+      revision = resources.selectAgentForConfigSet({
+        configSetId: configSet.id,
+        expectedRevision: revision,
+        resourceId: skill.id,
+        agentId,
+        sortOrder: 1,
+      });
+    }
 
     const defaultCredential = credentials.create({ label: "Default", provider: "test", value: "default-v1" });
     const ompCredential = credentials.create({ label: "OMP", provider: "test", value: "omp-v1" });

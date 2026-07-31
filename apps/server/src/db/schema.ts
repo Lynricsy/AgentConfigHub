@@ -135,10 +135,10 @@ export const resourceRevisionFiles = sqliteTable("resource_revision_files", {
 export const configSetResources = sqliteTable("config_set_resources", {
   configSetId: text("config_set_id").notNull().references(() => configSets.id, { onDelete: "cascade" }),
   resourceId: text("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull(),
   resourceRevisionId: text("resource_revision_id").references(() => resourceRevisions.id),
   sortOrder: integer("sort_order", { mode: "number" }).notNull(),
-  selectedAgents: text("selected_agents", { mode: "json" }).$type<string[]>().notNull(),
-}, (table) => [primaryKey({ columns: [table.configSetId, table.resourceId] })]);
+}, (table) => [primaryKey({ columns: [table.configSetId, table.resourceId, table.agentId] })]);
 
 export const credentials = sqliteTable("credentials", {
   id: id(),
@@ -231,9 +231,9 @@ export const releaseSecretBindings = sqliteTable("release_secret_bindings", {
 export const releaseResourceRevisions = sqliteTable("release_resource_revisions", {
   releaseId: text("release_id").notNull().references(() => releases.id, { onDelete: "cascade" }),
   resourceRevisionId: text("resource_revision_id").notNull().references(() => resourceRevisions.id),
+  agentId: text("agent_id").notNull(),
   sortOrder: integer("sort_order", { mode: "number" }).notNull(),
-  selectedAgents: text("selected_agents", { mode: "json" }).$type<string[]>().notNull(),
-}, (table) => [primaryKey({ columns: [table.releaseId, table.resourceRevisionId] })]);
+}, (table) => [primaryKey({ columns: [table.releaseId, table.resourceRevisionId, table.agentId] })]);
 
 export const auditEvents = sqliteTable("audit_events", {
   id: id(),

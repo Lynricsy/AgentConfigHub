@@ -1,6 +1,6 @@
 import { ulid } from "ulid";
 
-import type { AgentId } from "@agent-config-hub/protocol";
+import { AgentId } from "@agent-config-hub/protocol";
 
 import type { DatabaseContext } from "../db/database.js";
 import { mutateDraft } from "./draft-revision.js";
@@ -74,7 +74,7 @@ export class ResourceService {
         "UPDATE resources SET current_revision_id = ?, updated_at = ? WHERE id = ? AND current_revision_id = ?",
       ).run(revisionId, now, input.resourceId, input.expectedRevisionId);
       const configSets = this.#database.native.prepare(
-        "SELECT config_set_id AS configSetId FROM config_set_resources WHERE resource_id = ?",
+        "SELECT DISTINCT config_set_id AS configSetId FROM config_set_resources WHERE resource_id = ?",
       ).all(input.resourceId) as { configSetId: string }[];
       const markChanged = this.#database.native.prepare(
         "UPDATE config_sets SET draft_revision = draft_revision + 1, updated_at = ? WHERE id = ?",
@@ -84,35 +84,37 @@ export class ResourceService {
     })();
   }
 
-  selectForConfigSet(input: {
+  selectAgentForConfigSet(input: {
     configSetId: string;
     expectedRevision: number;
     resourceId: string;
+    agentId: AgentId;
     sortOrder: number;
-    selectedAgents: readonly AgentId[];
   }): number {
     return mutateDraft(this.#database, input.configSetId, input.expectedRevision, (connection) => {
       connection.prepare(`
-        INSERT INTO config_set_resources (config_set_id, resource_id, sort_order, selected_agents)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT (config_set_id, resource_id) DO UPDATE SET
+        INSERT INTO config_set_resources (
+          config_set_id, resource_id, agent_id, sort_order, resource_revision_id
+        ) VALUES (?, ?, ?, ?, NULL)
+        ON CONFLICT (config_set_id, resource_id, agent_id) DO UPDATE SET
           sort_order = excluded.sort_order,
-          selected_agents = excluded.selected_agents,
           resource_revision_id = NULL
-      `).run(input.configSetId, input.resourceId, input.sortOrder, JSON.stringify(input.selectedAgents));
+      `).run(input.configSetId, input.resourceId, input.agentId, input.sortOrder);
     }).revision;
   }
 
-  deselectForConfigSet(input: {
+  deselectAgentForConfigSet(input: {
     configSetId: string;
     expectedRevision: number;
     resourceId: string;
+    agentId: AgentId;
   }): number {
     return mutateDraft(this.#database, input.configSetId, input.expectedRevision, (connection) => {
-      const deleted = connection.prepare(
-        "DELETE FROM config_set_resources WHERE config_set_id = ? AND resource_id = ?",
-      ).run(input.configSetId, input.resourceId);
-      if (deleted.changes !== 1) throw new Error("Resource selection does not exist.");
+      const deleted = connection.prepare(`
+        DELETE FROM config_set_resources
+        WHERE config_set_id = ? AND resource_id = ? AND agent_id = ?
+      `).run(input.configSetId, input.resourceId, input.agentId);
+      if (deleted.changes !== 1) throw new Error(`Resource is not selected for ${input.agentId}.`);
     }).revision;
   }
 

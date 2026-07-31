@@ -41,7 +41,7 @@ const ResourceSelection = z.object({
   resourceId: z.string(),
   revisionId: z.string(),
   sortOrder: z.number().int(),
-  selectedAgents: AgentId.array(),
+  agentId: AgentId,
 });
 
 export const ConfigSetList = ConfigSet.array();

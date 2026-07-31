@@ -53,12 +53,12 @@ describe("publish inline secret scanning", () => {
         name: "Bad skill",
         files: [{ relativePath: "SKILL.md", blobSha256: blob.sha256, mediaType: "text/markdown", executable: false }],
       });
-      revision = resources.selectForConfigSet({
+      revision = resources.selectAgentForConfigSet({
         configSetId: configSet.id,
         expectedRevision: revision,
         resourceId: skill.id,
+        agentId: "claude-code",
         sortOrder: 0,
-        selectedAgents: ["claude-code"],
       });
     }
     const publish = new PublishService(database, blobs, new SecretBindingResolver(database, masterKey));

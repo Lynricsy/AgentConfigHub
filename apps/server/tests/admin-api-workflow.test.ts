@@ -150,16 +150,16 @@ describe("management API workflow", () => {
     });
 
     expect((await server.inject({
-      method: "PUT", url: `/api/v1/config-sets/${configSetId}/resources/${resource.id}`,
-      headers: headers("4"), payload: { sortOrder: 0, selectedAgents: ["claude-code"] },
+      method: "PUT", url: `/api/v1/config-sets/${configSetId}/configs/claude-code/resources/${resource.id}`,
+      headers: headers("4"), payload: { sortOrder: 0 },
     })).statusCode).toBe(200);
     expect((await server.inject({
-      method: "DELETE", url: `/api/v1/config-sets/${configSetId}/resources/${resource.id}`,
+      method: "DELETE", url: `/api/v1/config-sets/${configSetId}/configs/claude-code/resources/${resource.id}`,
       headers: headers("5"),
     })).statusCode).toBe(200);
     expect((await server.inject({
-      method: "PUT", url: `/api/v1/config-sets/${configSetId}/resources/${resource.id}`,
-      headers: headers("6"), payload: { sortOrder: 0, selectedAgents: ["claude-code"] },
+      method: "PUT", url: `/api/v1/config-sets/${configSetId}/configs/claude-code/resources/${resource.id}`,
+      headers: headers("6"), payload: { sortOrder: 0 },
     })).statusCode).toBe(200);
 
     const credentialCreate = await server.inject({
@@ -306,7 +306,7 @@ describe("management API workflow", () => {
         draftRevision: 11,
         currentReleaseRevision: 11,
       },
-      selectedResources: [{ resourceId: resource.id, revisionId: changedResourceRevision, selectedAgents: ["claude-code"] }],
+      selectedResources: [{ resourceId: resource.id, revisionId: changedResourceRevision, agentId: "claude-code" }],
     });
     const staleConfigDelete = await server.inject({
       method: "DELETE",

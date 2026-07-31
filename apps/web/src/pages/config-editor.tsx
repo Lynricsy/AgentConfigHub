@@ -29,6 +29,7 @@ import {
   AdapterList,
   ApiClientError,
   ConfigSetDetail,
+  ResourceList,
   ValidationResult,
   api,
   downloadBlob,
@@ -36,6 +37,8 @@ import {
   uploadBlob,
   type AdapterMetadata,
   type DraftFile,
+  type ConfigSetDetail as ConfigSetDetailData,
+  type ResourceList as ResourceData,
   targetKey,
 } from "../api.js";
 import { ErrorNotice } from "../auth.js";
@@ -508,6 +511,124 @@ function BinaryFilePanel({
   );
 }
 
+function ConfigResourceBindings({
+  configSetId,
+  agentId,
+  detail,
+}: {
+  configSetId: string;
+  agentId: AgentId;
+  detail: ConfigSetDetailData;
+}) {
+  const queryClient = useQueryClient();
+  const [pendingResourceId, setPendingResourceId] = useState<string>();
+  const [error, setError] = useState<unknown>();
+  const resources = useQuery({
+    queryKey: ["resources"],
+    queryFn: () => api("/api/v1/resources", ResourceList),
+  });
+  const updateBinding = async (resourceId: string, selected: boolean, sortOrder: number) => {
+    setPendingResourceId(resourceId);
+    setError(undefined);
+    try {
+      await mutate(
+        `/api/v1/config-sets/${configSetId}/configs/${agentId}/resources/${resourceId}`,
+        RevisionResult,
+        selected ? { sortOrder } : {},
+        {
+          method: selected ? "PUT" : "DELETE",
+          revision: detail.configSet.draftRevision,
+        },
+      );
+      const refreshed = await api(`/api/v1/config-sets/${configSetId}`, ConfigSetDetail);
+      queryClient.setQueryData(["config-set", configSetId], refreshed);
+      await queryClient.invalidateQueries({ queryKey: ["config-sets"] });
+    } catch (cause) {
+      setError(cause);
+      if (cause instanceof ApiClientError && cause.code === "REVISION_CONFLICT") {
+        await queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] });
+      }
+    } finally {
+      setPendingResourceId(undefined);
+    }
+  };
+  const renderResources = (kind: ResourceData["resources"][number]["kind"]) => {
+    const matches = resources.data?.resources.filter((resource) => resource.kind === kind) ?? [];
+    return (
+      <section>
+        <h3>{kind === "instruction" ? "Instructions" : "Skills"}</h3>
+        <div className="config-resource-list">
+          {matches.map((resource, index) => {
+            const selection = detail.selectedResources.find((candidate) =>
+              candidate.resourceId === resource.id && candidate.agentId === agentId);
+            const selected = selection !== undefined;
+            const order = selection?.sortOrder ?? index;
+            return (
+              <article className={selected ? "selected" : ""} key={resource.id}>
+                <label>
+                  <input
+                    checked={selected}
+                    disabled={pendingResourceId !== undefined}
+                    onChange={(event) => void updateBinding(resource.id, event.target.checked, order)}
+                    type="checkbox"
+                  />
+                  <span>
+                    <strong>{resource.name}</strong>
+                    <small>{resource.slug} · r{resource.revisionNumber}</small>
+                  </span>
+                </label>
+                {selected && (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      const data = new FormData(event.currentTarget);
+                      void updateBinding(resource.id, true, Number(data.get("sortOrder")));
+                    }}
+                  >
+                    <Field label="Order">
+                      <input
+                        aria-label={`${resource.name} order`}
+                        defaultValue={order}
+                        key={`${resource.id}-${order}`}
+                        min={0}
+                        name="sortOrder"
+                        type="number"
+                      />
+                    </Field>
+                    <button className="btn" disabled={pendingResourceId !== undefined} type="submit">
+                      Save order
+                    </button>
+                  </form>
+                )}
+              </article>
+            );
+          })}
+          {matches.length === 0 && <p className="muted">No {kind}s available.</p>}
+        </div>
+      </section>
+    );
+  };
+
+  return (
+    <section className="config-resource-bindings panel">
+      <header>
+        <div>
+          <p className="eyebrow">Agent resources</p>
+          <h2>Instructions &amp; skills</h2>
+        </div>
+        <span className="mono">{agentId}</span>
+      </header>
+      {resources.isPending && <Loading label="Loading resources…" />}
+      {resources.error && <ErrorNotice error={resources.error} />}
+      {error !== undefined && <ErrorNotice error={error} />}
+      <div className="config-resource-columns">
+        {renderResources("instruction")}
+        {renderResources("skill")}
+      </div>
+    </section>
+  );
+}
+
 export function ConfigEditorPage() {
   const { configSetId, agentId } = useParams<"configSetId" | "agentId">();
   const queryClient = useQueryClient();
@@ -678,6 +799,11 @@ export function ConfigEditorPage() {
         </form>
       )}
       {actionError !== undefined && <ErrorNotice error={actionError} />}
+      <ConfigResourceBindings
+        agentId={parsedAgent.data}
+        configSetId={configSetId}
+        detail={detail.data}
+      />
       <div className="editor-shell">
         <aside className="file-tree">
           {files.map((file) => {

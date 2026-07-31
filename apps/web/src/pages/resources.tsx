@@ -1,176 +1,463 @@
+import Editor, { type Monaco } from "@monaco-editor/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { FileCode, FileText, LoaderCircle, Package, Plus, Save, Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { Download, FileText, Package } from "lucide-react";
 
-import { AgentId } from "@agent-config-hub/protocol";
-
-import { ConfigSetDetail, ConfigSetList, ResourceList, api, mutate, uploadBlob } from "../api.js";
+import {
+  ResourceList,
+  ApiClientError,
+  api,
+  downloadBlob,
+  mutate,
+  uploadBlob,
+  type ResourceList as ResourceData,
+} from "../api.js";
 import { ErrorNotice } from "../auth.js";
-import { Chip, Empty, Field } from "../ui/bits.js";
+import { Chip, Empty, Field, Loading } from "../ui/bits.js";
 import { MagneticButton } from "../ui/magnetic.js";
 import { Page } from "../ui/page.js";
 
 const ResourceCreated = z.object({ id: z.string(), revisionId: z.string() });
 const ResourceRevised = z.object({ revisionId: z.string() });
 
-function DirectoryInput({ name, required = false }: { name: string; required?: boolean }) {
-  return <input
-    name={name}
-    type="file"
-    multiple
-    required={required}
-    ref={(element) => {
-      element?.setAttribute("webkitdirectory", "");
-    }}
-  />;
-}
-const RevisionResult = z.object({ revision: z.number().int() });
+type Resource = ResourceData["resources"][number];
+type ResourceFile = ResourceData["files"][number];
 
-async function uploadFiles(files: File[]) {
-  if (files.length === 0) throw new Error("Choose at least one file.");
-  const directoryPaths = files.map((file) => file.webkitRelativePath);
-  const fromDirectory = directoryPaths.every(Boolean);
-  if (!fromDirectory && directoryPaths.some(Boolean)) throw new Error("Directory selection is incomplete.");
-  const root = fromDirectory ? directoryPaths[0]!.split("/")[0] : null;
-  const paths = files.map((file, index) => {
-    const raw = fromDirectory ? directoryPaths[index]! : file.name;
-    const segments = raw.split("/");
-    if (root !== null && segments.shift() !== root) throw new Error("Every skill file must share one root directory.");
-    if (segments.length === 0 || segments.some((segment) => !segment || segment === "." || segment === "..")) {
-      throw new Error("Skill paths must be safe, non-empty relative paths.");
-    }
-    return segments.join("/");
+function languageFor(path: string): string {
+  const lower = path.toLocaleLowerCase("en-US");
+  if (lower.endsWith(".json") || lower.endsWith(".jsonc")) return "json";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "yaml";
+  if (lower.endsWith(".toml")) return "toml";
+  if (lower.endsWith(".md") || lower.endsWith(".mdc")) return "markdown";
+  if (lower.endsWith(".ts") || lower.endsWith(".tsx")) return "typescript";
+  if (lower.endsWith(".js") || lower.endsWith(".jsx")) return "javascript";
+  if (lower.endsWith(".sh") || lower.endsWith(".bash")) return "shell";
+  if (lower.endsWith(".py")) return "python";
+  return "plaintext";
+}
+
+function mediaTypeFor(path: string): string {
+  const language = languageFor(path);
+  if (language === "json") return "application/json";
+  if (language === "yaml") return "application/yaml";
+  if (language === "toml") return "application/toml";
+  if (language === "markdown") return "text/markdown";
+  if (["typescript", "javascript", "shell", "python", "plaintext"].includes(language)) return "text/plain";
+  return "application/octet-stream";
+}
+
+function initialText(kind: Resource["kind"], name: string, slug: string, path: string): string {
+  if (kind === "instruction") return `# ${name}\n`;
+  if (path === "SKILL.md") return `---\nname: ${slug}\ndescription: ${name}\n---\n\n`;
+  if (languageFor(path) === "json") return "{}\n";
+  return "";
+}
+
+function isInlineEditable(file: ResourceFile): boolean {
+  return file.mediaType.startsWith("text/") ||
+    ["application/json", "application/yaml", "application/toml"].includes(file.mediaType) ||
+    languageFor(file.relativePath) !== "plaintext";
+}
+
+function defineResourceTheme(monaco: Monaco): void {
+  monaco.editor.defineTheme("ach-void", {
+    base: "vs-dark",
+    inherit: true,
+    rules: [
+      { token: "comment", foreground: "3d4d47" },
+      { token: "string", foreground: "b8f35b" },
+      { token: "number", foreground: "ffc76b" },
+      { token: "keyword", foreground: "3ddcff" },
+      { token: "type", foreground: "3ddcff" },
+    ],
+    colors: {
+      "editor.background": "#080b0e",
+      "editor.foreground": "#e9efe9",
+      "editorLineNumber.foreground": "#2b3a36",
+      "editorLineNumber.activeForeground": "#b8f35b",
+      "editor.lineHighlightBackground": "#0d1114",
+      "editorCursor.foreground": "#b8f35b",
+      "editor.selectionBackground": "#1d2f1c",
+    },
   });
-  if (new Set(paths).size !== paths.length) throw new Error("Skill file paths must be unique.");
-  return await Promise.all(files.map(async (file, index) => {
-    const blob = await uploadBlob(file);
-    return {
-      relativePath: paths[index]!,
-      blobSha256: blob.sha256,
-      mediaType: file.type || "application/octet-stream",
-      executable: false,
-    };
-  }));
+}
+
+function ResourceFileEditor({
+  resource,
+  file,
+  files,
+}: {
+  resource: Resource;
+  file: ResourceFile;
+  files: ResourceFile[];
+}) {
+  const queryClient = useQueryClient();
+  const source = useQuery({
+    queryKey: ["blob-text", file.blobSha256],
+    queryFn: async () => await (await downloadBlob(file.blobSha256)).text(),
+    enabled: isInlineEditable(file),
+  });
+  const [text, setText] = useState("");
+  const [savedText, setSavedText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<unknown>();
+  const [conflict, setConflict] = useState<{
+    resource: Resource;
+    files: ResourceFile[];
+    serverText: string;
+  }>();
+  useEffect(() => {
+    if (source.data === undefined) return;
+    setText(source.data);
+    setSavedText(source.data);
+  }, [source.data]);
+  const save = async (
+    baseResource: Resource = resource,
+    baseFiles: ResourceFile[] = files,
+  ) => {
+    if (text === savedText && conflict === undefined) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      const descriptor = await uploadBlob(new Blob([text], { type: file.mediaType }), file.mediaType);
+      const nextFiles = baseFiles.map((candidate) => ({
+        relativePath: candidate.relativePath,
+        blobSha256: candidate.relativePath === file.relativePath
+          ? descriptor.sha256
+          : candidate.blobSha256,
+        mediaType: candidate.mediaType,
+        executable: candidate.executable,
+      }));
+      if (!baseFiles.some((candidate) => candidate.relativePath === file.relativePath)) {
+        nextFiles.push({
+          relativePath: file.relativePath,
+          blobSha256: descriptor.sha256,
+          mediaType: file.mediaType,
+          executable: file.executable,
+        });
+      }
+      await mutate(
+        `/api/v1/resources/${baseResource.id}`,
+        ResourceRevised,
+        { files: nextFiles },
+        { method: "PUT", revision: baseResource.revisionId },
+      );
+      setSavedText(text);
+      setConflict(undefined);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["resources"] }),
+        queryClient.invalidateQueries({ queryKey: ["config-set"] }),
+        queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
+      ]);
+    } catch (cause) {
+      if (cause instanceof ApiClientError && cause.code === "REVISION_CONFLICT") {
+        try {
+          const latest = await api("/api/v1/resources", ResourceList);
+          const latestResource = latest.resources.find((candidate) => candidate.id === resource.id);
+          if (latestResource === undefined) throw cause;
+          const latestFiles = latest.files.filter((candidate) => candidate.resourceId === resource.id);
+          const latestFile = latestFiles.find((candidate) => candidate.relativePath === file.relativePath);
+          const serverText = latestFile === undefined
+            ? ""
+            : await (await downloadBlob(latestFile.blobSha256)).text();
+          setConflict({ resource: latestResource, files: latestFiles, serverText });
+          setError(undefined);
+        } catch (refreshError) {
+          setError(refreshError);
+        }
+      } else {
+        setError(cause);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!isInlineEditable(file)) {
+    return (
+      <Empty
+        title="Binary file"
+        hint="This resource keeps the file, but binary content cannot be edited inline."
+      />
+    );
+  }
+  if (source.isPending) return <Loading label="Loading resource file…" />;
+  if (source.error) return <ErrorNotice error={source.error} />;
+
+  return (
+    <div className="resource-editor">
+      <div className="editor-toolbar">
+        {saving ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <FileCode size={15} aria-hidden="true" />}
+        <span className="mono">{file.relativePath}</span>
+        <span className={text === savedText ? "save-state saved" : "save-state unsaved"}>
+          {text === savedText ? "saved" : "edited"}
+        </span>
+        <button className="btn" disabled={saving || text === savedText} onClick={() => void save()}>
+          <Save size={15} aria-hidden="true" />
+          Save revision
+        </button>
+      </div>
+      {error !== undefined && <ErrorNotice error={error} />}
+      {conflict !== undefined && (
+        <section className="conflict-panel" role="alert">
+          <h3>Resource revision changed</h3>
+          <p>Another editor saved this resource. Your draft is preserved; compare before choosing a version.</p>
+          <div className="conflict-columns">
+            <div>
+              <strong>Your draft</strong>
+              <pre>{text}</pre>
+            </div>
+            <div>
+              <strong>Latest server revision</strong>
+              <pre>{conflict.serverText}</pre>
+            </div>
+          </div>
+          <div className="button-row">
+            <button
+              className="btn btn-primary"
+              disabled={saving}
+              onClick={() => void save(conflict.resource, conflict.files)}
+              type="button"
+            >
+              Keep mine as new revision
+            </button>
+            <button
+              className="btn"
+              disabled={saving}
+              onClick={() => {
+                setText(conflict.serverText);
+                setSavedText(conflict.serverText);
+                setConflict(undefined);
+              }}
+              type="button"
+            >
+              Reload server version
+            </button>
+          </div>
+        </section>
+      )}
+      <Editor
+        beforeMount={defineResourceTheme}
+        height="min(62vh, 46rem)"
+        language={languageFor(file.relativePath)}
+        onChange={(value) => setText(value ?? "")}
+        options={{
+          minimap: { enabled: false },
+          fontFamily: "'JetBrains Mono Variable', monospace",
+          fontSize: 13,
+          padding: { top: 14 },
+          scrollBeyondLastLine: false,
+          wordWrap: file.relativePath.endsWith(".md") ? "on" : "off",
+        }}
+        path={`resource://${resource.id}/${resource.revisionId}/${file.relativePath}`}
+        theme="ach-void"
+        value={text}
+      />
+    </div>
+  );
 }
 
 export function ResourcesPage() {
   const queryClient = useQueryClient();
-  const [creating, setCreating] = useState(false);
+  const [creatingKind, setCreatingKind] = useState<Resource["kind"]>();
   const [selectedId, setSelectedId] = useState<string>();
-  const [selectedConfigId, setSelectedConfigId] = useState<string>();
-  const [pendingAction, setPendingAction] = useState<"create" | "replace">();
-  const [actionError, setActionError] = useState<{ action: "create" | "replace"; error: unknown }>();
-  const resources = useQuery({ queryKey: ["resources"], queryFn: () => api("/api/v1/resources", ResourceList) });
-  const configSets = useQuery({ queryKey: ["config-sets"], queryFn: () => api("/api/v1/config-sets", ConfigSetList) });
-  const selectedConfig = useQuery({
-    queryKey: ["config-set", selectedConfigId],
-    queryFn: () => api(`/api/v1/config-sets/${selectedConfigId}`, ConfigSetDetail),
-    enabled: Boolean(selectedConfigId),
+  const [selectedPath, setSelectedPath] = useState<string>();
+  const [addingFile, setAddingFile] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [actionError, setActionError] = useState<unknown>();
+  const resources = useQuery({
+    queryKey: ["resources"],
+    queryFn: () => api("/api/v1/resources", ResourceList),
   });
-  const createResource = async (input: {
-    kind: "instruction" | "skill";
-    slug: string;
-    name: string;
-    files: File[];
-    markdown: string;
-  }) => {
-    setPendingAction("create"); setActionError(undefined);
-    try {
-      const files = input.kind === "instruction"
-        ? await (async () => {
-            const descriptor = await uploadBlob(new Blob([input.markdown], { type: "text/markdown" }));
-            return [{
-              relativePath: "instruction.md",
-              blobSha256: descriptor.sha256,
-              mediaType: "text/markdown",
-              executable: false,
-            }];
-          })()
-        : await uploadFiles(input.files);
-      await mutate("/api/v1/resources", ResourceCreated, {
-        kind: input.kind, slug: input.slug, name: input.name, files,
-      });
-      setCreating(false);
-      await queryClient.invalidateQueries({ queryKey: ["resources"] });
-    } catch (error) { setActionError({ action: "create", error }); }
-    finally { setPendingAction(undefined); }
+  const instructions = resources.data?.resources.filter(({ kind }) => kind === "instruction") ?? [];
+  const skills = resources.data?.resources.filter(({ kind }) => kind === "skill") ?? [];
+  const selected = resources.data?.resources.find(({ id }) => id === selectedId);
+  const selectedFiles = useMemo(
+    () => resources.data?.files.filter(({ resourceId }) => resourceId === selectedId) ?? [],
+    [resources.data?.files, selectedId],
+  );
+  const selectedFile = selectedFiles.find(({ relativePath }) => relativePath === selectedPath);
+
+  useEffect(() => {
+    if (selected && selectedFiles.length > 0 && !selectedFile) {
+      setSelectedPath(
+        selectedFiles.find(({ relativePath }) => relativePath === "SKILL.md")?.relativePath ??
+          selectedFiles[0]!.relativePath,
+      );
+    }
+  }, [selected, selectedFile, selectedFiles]);
+
+  const selectResource = (resource: Resource, path?: string) => {
+    setSelectedId(resource.id);
+    const files = resources.data?.files.filter(({ resourceId }) => resourceId === resource.id) ?? [];
+    setSelectedPath(path ?? files.find(({ relativePath }) => relativePath === "SKILL.md")?.relativePath ?? files[0]?.relativePath);
+    setAddingFile(false);
+    setActionError(undefined);
   };
-  const replaceResource = async (input: { resourceId: string; revisionId: string; files: File[] }) => {
-    setPendingAction("replace"); setActionError(undefined);
+
+  const createResource = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!creatingKind) return;
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get("name")).trim();
+    const slug = String(form.get("slug")).trim();
+    const relativePath = creatingKind === "instruction" ? "instruction.md" : "SKILL.md";
+    setPending(true);
+    setActionError(undefined);
+    try {
+      const mediaType = "text/markdown";
+      const descriptor = await uploadBlob(
+        new Blob([initialText(creatingKind, name, slug, relativePath)], { type: mediaType }),
+        mediaType,
+      );
+      const created = await mutate(
+        "/api/v1/resources",
+        ResourceCreated,
+        {
+          kind: creatingKind,
+          slug,
+          name,
+          files: [{
+            relativePath,
+            blobSha256: descriptor.sha256,
+            mediaType,
+            executable: false,
+          }],
+        },
+      );
+      const refreshed = await api("/api/v1/resources", ResourceList);
+      queryClient.setQueryData(["resources"], refreshed);
+      setSelectedId(created.data.id);
+      setSelectedPath(relativePath);
+      setCreatingKind(undefined);
+    } catch (cause) {
+      setActionError(cause);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const saveFileTree = async (
+    resource: Resource,
+    files: Array<Pick<ResourceFile, "relativePath" | "blobSha256" | "mediaType" | "executable">>,
+  ): Promise<boolean> => {
+    setPending(true);
+    setActionError(undefined);
     try {
       await mutate(
-        `/api/v1/resources/${input.resourceId}`,
+        `/api/v1/resources/${resource.id}`,
         ResourceRevised,
-        { files: await uploadFiles(input.files) },
-        { method: "PUT", revision: input.revisionId },
+        { files },
+        { method: "PUT", revision: resource.revisionId },
       );
-      await queryClient.invalidateQueries({ queryKey: ["resources"] });
-    } catch (error) { setActionError({ action: "replace", error }); }
-    finally { setPendingAction(undefined); }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["resources"] }),
+        queryClient.invalidateQueries({ queryKey: ["config-set"] }),
+        queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
+      ]);
+      return true;
+    } catch (cause) {
+      setActionError(cause);
+      return false;
+    } finally {
+      setPending(false);
+    }
   };
 
-  const createSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const addSkillFile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const fileInput = form.elements.namedItem("files");
-    const files = fileInput instanceof HTMLInputElement ? [...(fileInput.files ?? [])] : [];
-    const input = {
-      kind: z.enum(["instruction", "skill"]).parse(data.get("kind")),
-      slug: String(data.get("slug")),
-      name: String(data.get("name")),
-      markdown: String(data.get("markdown")),
-      files,
-    };
-    form.reset();
-    void createResource(input);
+    if (!selected || selected.kind !== "skill") return;
+    const form = new FormData(event.currentTarget);
+    const relativePath = String(form.get("relativePath")).trim();
+    if (!relativePath || relativePath.startsWith("/") || relativePath.includes("\\") ||
+      relativePath.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+      setActionError(new Error("Enter a safe, non-empty relative path."));
+      return;
+    }
+    if (selectedFiles.some((file) => file.relativePath === relativePath)) {
+      setActionError(new Error(`${relativePath} already exists in this skill.`));
+      return;
+    }
+    try {
+      const mediaType = mediaTypeFor(relativePath);
+      const descriptor = await uploadBlob(
+        new Blob([initialText("skill", selected.name, selected.slug, relativePath)], { type: mediaType }),
+        mediaType,
+      );
+      const saved = await saveFileTree(selected, [
+        ...selectedFiles.map(({ relativePath: path, blobSha256, mediaType: type, executable }) => ({
+          relativePath: path,
+          blobSha256,
+          mediaType: type,
+          executable,
+        })),
+        {
+          relativePath,
+          blobSha256: descriptor.sha256,
+          mediaType,
+          executable: false,
+        },
+      ]);
+      if (saved) {
+        setSelectedPath(relativePath);
+        setAddingFile(false);
+      }
+    } catch (cause) {
+      setActionError(cause);
+    }
   };
-  const selected = resources.data?.resources.find(({ id }) => id === selectedId);
-  const selectedFiles = resources.data?.files.filter(({ resourceId }) => resourceId === selectedId) ?? [];
 
-  const setSelection = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selected || !selectedConfig.data) return;
-    const data = new FormData(event.currentTarget);
-    await mutate(
-      `/api/v1/config-sets/${selectedConfig.data.configSet.id}/resources/${selected.id}`,
-      RevisionResult,
-      { sortOrder: Number(data.get("sortOrder")), selectedAgents: data.getAll("agents").map(String) },
-      { method: "PUT", revision: selectedConfig.data.configSet.draftRevision },
+  const deleteSelectedFile = async () => {
+    if (!selected || selected.kind !== "skill" || !selectedFile || selectedFile.relativePath === "SKILL.md") return;
+    const saved = await saveFileTree(
+      selected,
+      selectedFiles
+        .filter(({ relativePath }) => relativePath !== selectedFile.relativePath)
+        .map(({ relativePath, blobSha256, mediaType, executable }) => ({
+          relativePath,
+          blobSha256,
+          mediaType,
+          executable,
+        })),
     );
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["config-set", selectedConfig.data.configSet.id] }),
-      queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
-    ]);
+    if (saved) setSelectedPath("SKILL.md");
   };
+
+  if (resources.isPending) return <Loading label="Loading resources…" />;
 
   return (
     <Page
       index="03"
       eyebrow="Shared library"
       title="Resources"
-      lede="Ordered instructions and portable skill file trees, revisioned independently."
+      lede="Edit reusable instructions and skill files directly. Bind them from each Agent configuration."
       actions={(
-        <MagneticButton
-          className="btn btn-primary"
-          onClick={() => setCreating((value) => !value)}
-          type="button"
-        >
-          {creating ? "Cancel" : "New resource"}
-        </MagneticButton>
+        <>
+          <MagneticButton
+            className="btn"
+            onClick={() => setCreatingKind((kind) => kind === "instruction" ? undefined : "instruction")}
+            type="button"
+          >
+            <FileText size={15} aria-hidden="true" />
+            New instruction
+          </MagneticButton>
+          <MagneticButton
+            className="btn btn-primary"
+            onClick={() => setCreatingKind((kind) => kind === "skill" ? undefined : "skill")}
+            type="button"
+          >
+            <Package size={15} aria-hidden="true" />
+            New skill
+          </MagneticButton>
+        </>
       )}
     >
-      {creating && (
-        <form className="panel resource-form" onSubmit={createSubmit}>
+      {creatingKind && (
+        <form className="panel resource-form" onSubmit={(event) => void createResource(event)}>
+          <p className="eyebrow">New {creatingKind}</p>
           <div className="form-row">
-            <Field label="Kind">
-              <select name="kind">
-                <option value="instruction">Instruction</option>
-                <option value="skill">Skill</option>
-              </select>
-            </Field>
             <Field label="Name">
               <input name="name" required />
             </Field>
@@ -178,145 +465,120 @@ export function ResourcesPage() {
               <input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required />
             </Field>
           </div>
-          <Field label="Instruction Markdown">
-            <textarea
-              name="markdown"
-              rows={5}
-              placeholder="Used for instruction resources; ignored for skills."
-            />
-          </Field>
-          <Field label="Skill directory">
-            <DirectoryInput name="files" />
-          </Field>
-          {actionError?.action === "create" && <ErrorNotice error={actionError.error} />}
-          <MagneticButton
-            className="btn btn-primary"
-            disabled={pendingAction === "create"}
-            type="submit"
-          >
-            Create revision
+          {actionError !== undefined && <ErrorNotice error={actionError} />}
+          <MagneticButton className="btn btn-primary" disabled={pending} type="submit">
+            Create {creatingKind}
           </MagneticButton>
         </form>
       )}
 
-      <div className="split">
-        <section className="resource-list">
-          {resources.data?.resources.map((resource) => (
-            <button
-              key={resource.id}
-              className={selectedId === resource.id ? "selected" : ""}
-              onClick={() => setSelectedId(resource.id)}
-              type="button"
-            >
-              {resource.kind === "instruction"
-                ? <FileText size={15} strokeWidth={1.5} aria-hidden="true" />
-                : <Package size={15} strokeWidth={1.5} aria-hidden="true" />}
-              <span>
-                <strong>{resource.name}</strong>
-                <small>{resource.slug} · revision {resource.revisionNumber}</small>
-              </span>
-            </button>
-          ))}
-          {resources.data?.resources.length === 0 && <Empty title="No shared resources" />}
-        </section>
-
-        <section className="resource-detail">
-          {!selected && (
-            <Empty
-              title="Select a resource"
-              hint="Inspect its immutable current revision and bindings."
-            />
-          )}
-          {selected && (
-            <>
-              <div className="card-top">
-                <Chip>{selected.kind}</Chip>
-                <span className="mono">r{selected.revisionNumber}</span>
-              </div>
-              <h2 className="display-sm">{selected.name}</h2>
-
-              <div className="file-list">
-                {selectedFiles.map((file) => (
-                  <a
-                    key={file.relativePath}
-                    href={`/api/v1/blobs/${file.blobSha256}`}
-                    download
-                  >
-                    <Download size={15} strokeWidth={1.5} aria-hidden="true" />
-                    <span>{file.relativePath}</span>
-                    <small>{file.mediaType}</small>
-                  </a>
-                ))}
-              </div>
-
-              <form
-                className="stack compact-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const input = event.currentTarget.elements.namedItem("replacement");
-                  if (input instanceof HTMLInputElement && input.files?.length) {
-                    const files = [...input.files];
-                    event.currentTarget.reset();
-                    void replaceResource({
-                      resourceId: selected.id,
-                      revisionId: selected.revisionId,
-                      files,
-                    });
-                  }
-                }}
+      {resources.error && <ErrorNotice error={resources.error} />}
+      <div className="resource-workspace">
+        <aside className="resource-browser">
+          <section aria-labelledby="instruction-heading">
+            <h2 id="instruction-heading">Instructions</h2>
+            {instructions.map((resource) => (
+              <button
+                className={selectedId === resource.id ? "selected" : ""}
+                key={resource.id}
+                onClick={() => selectResource(resource, "instruction.md")}
+                type="button"
               >
-                <Field label="Replace complete file tree">
-                  {selected.kind === "skill"
-                    ? <DirectoryInput name="replacement" required />
-                    : <input name="replacement" type="file" multiple required />}
-                </Field>
-                {actionError?.action === "replace" && <ErrorNotice error={actionError.error} />}
-                <button
-                  className="btn"
-                  disabled={pendingAction === "replace"}
-                  type="submit"
-                >
-                  Create new revision
-                </button>
-              </form>
+                <FileText size={15} aria-hidden="true" />
+                <span>
+                  <strong>{resource.name}</strong>
+                  <small>{resource.slug} · r{resource.revisionNumber}</small>
+                </span>
+              </button>
+            ))}
+            {instructions.length === 0 && <p className="muted resource-empty">No instructions.</p>}
+          </section>
 
-              <hr />
-
-              <form
-                className="stack compact-form"
-                onSubmit={(event) => void setSelection(event)}
-              >
-                <h3>Apply to configuration group</h3>
-                <Field label="Configuration group">
-                  <select
-                    value={selectedConfigId ?? ""}
-                    onChange={(event) => setSelectedConfigId(event.target.value)}
-                    required
+          <section aria-labelledby="skill-heading">
+            <h2 id="skill-heading">Skills</h2>
+            {skills.map((resource) => {
+              const files = resources.data?.files.filter(({ resourceId }) => resourceId === resource.id) ?? [];
+              return (
+                <div className="resource-tree" key={resource.id}>
+                  <button
+                    className={selectedId === resource.id && !selectedPath ? "selected" : ""}
+                    onClick={() => selectResource(resource)}
+                    type="button"
                   >
-                    <option value="">Choose…</option>
-                    {configSets.data?.map((set) => (
-                      <option key={set.id} value={set.id}>{set.name}</option>
+                    <Package size={15} aria-hidden="true" />
+                    <span>
+                      <strong>{resource.name}</strong>
+                      <small>{resource.slug} · r{resource.revisionNumber}</small>
+                    </span>
+                  </button>
+                  <div className="resource-tree-files">
+                    {files.map((file) => (
+                      <button
+                        className={selectedId === resource.id && selectedPath === file.relativePath ? "selected" : ""}
+                        key={file.relativePath}
+                        onClick={() => selectResource(resource, file.relativePath)}
+                        type="button"
+                      >
+                        <FileCode size={14} aria-hidden="true" />
+                        <span>{file.relativePath}</span>
+                      </button>
                     ))}
-                  </select>
-                </Field>
-                <Field label="Order">
-                  <input name="sortOrder" type="number" min={0} defaultValue={0} />
-                </Field>
-                <div className="check-grid">
-                  {AgentId.options.map((agent) => (
-                    <label className="check" key={agent}>
-                      <input name="agents" type="checkbox" value={agent} />
-                      {agent}
-                    </label>
-                  ))}
+                  </div>
                 </div>
-                <button className="btn" disabled={!selectedConfig.data} type="submit">
-                  Save selection
-                </button>
-              </form>
-            </>
-          )}
-        </section>
+              );
+            })}
+            {skills.length === 0 && <p className="muted resource-empty">No skills.</p>}
+          </section>
+        </aside>
+
+        <main className="resource-detail">
+          {!selected || !selectedFile
+            ? <Empty title="Select a resource file" hint="The file opens here for direct editing." />
+            : (
+                <>
+                  <header className="resource-editor-header">
+                    <div>
+                      <Chip>{selected.kind}</Chip>
+                      <h2 className="display-sm">{selected.name}</h2>
+                      <p className="mono">{selected.slug} · revision {selected.revisionNumber}</p>
+                    </div>
+                    {selected.kind === "skill" && (
+                      <div className="button-row">
+                        <button className="btn" onClick={() => setAddingFile((value) => !value)}>
+                          <Plus size={15} aria-hidden="true" />
+                          New file
+                        </button>
+                        <button
+                          className="btn btn-danger"
+                          disabled={selectedFile.relativePath === "SKILL.md" || pending}
+                          onClick={() => void deleteSelectedFile()}
+                        >
+                          <Trash2 size={15} aria-hidden="true" />
+                          Delete file
+                        </button>
+                      </div>
+                    )}
+                  </header>
+                  {addingFile && selected.kind === "skill" && (
+                    <form className="add-file-bar" onSubmit={(event) => void addSkillFile(event)}>
+                      <div className="grow">
+                        <Field label="Relative path">
+                          <input name="relativePath" placeholder="scripts/check.ts" required />
+                        </Field>
+                      </div>
+                      <button className="btn btn-primary" disabled={pending} type="submit">Create file</button>
+                    </form>
+                  )}
+                  {actionError !== undefined && <ErrorNotice error={actionError} />}
+                  <ResourceFileEditor
+                    key={`${selected.revisionId}-${selectedFile.relativePath}`}
+                    resource={selected}
+                    file={selectedFile}
+                    files={selectedFiles}
+                  />
+                </>
+              )}
+        </main>
       </div>
     </Page>
   );

@@ -15,7 +15,7 @@ AI coding agents use different files, roots, formats, and authentication convent
 ## Features
 
 - Named configuration groups as release and rollback boundaries, with one explicit configuration per Agent and `By group` / `By Agent` browsing
-- Create-only `New` / `Upload` file flows, Monaco-based native file editing, diagnostics, shared instructions, and portable Agent Skills
+- Create-only `New` / `Upload` flows and Monaco editing for native config files, plus direct revisioned editing of shared instructions and portable Agent Skills
 - Envelope-encrypted blobs and credential revisions with format-aware secret slots
 - Password-protected administration, one-time device pairing, and revocable automation tokens
 - Transactional cross-platform installation with full backups, managed-file deletion safety, symlink/reparse-point refusal, and crash recovery

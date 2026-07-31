@@ -1,5 +1,3 @@
-import { resolve } from "node:path";
-
 import { expect, test } from "@playwright/test";
 
 test("administers a configuration through release without retaining one-time secrets", async ({ page }) => {
@@ -87,21 +85,118 @@ test("administers a configuration through release without retaining one-time sec
   })).toBe('{"model":"e2e"}');
 
   await page.getByRole("link", { name: /Resources/ }).click();
-  await page.getByRole("button", { name: "New resource" }).click();
+  await page.getByRole("button", { name: "New instruction" }).click();
   await page.getByLabel("Name").fill("E2E instructions");
   await page.getByLabel("Slug").fill("e2e-instructions");
-  await page.getByLabel("Instruction Markdown").fill("Always verify E2E changes.");
-  await page.getByRole("button", { name: "Create revision" }).click();
-  await expect(page.getByText("E2E instructions", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "New resource" }).click();
-  await page.getByLabel("Kind").selectOption("skill");
+  await page.getByRole("button", { name: "Create instruction" }).click();
+  await page.waitForFunction(() => "monaco" in window);
+  await page.waitForFunction(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string } }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()
+      .some((model) => model.uri.toString().includes("/instruction.md"));
+  });
+  await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string }; setValue(value: string): void }[] } };
+    };
+    browserWindow.monaco.editor.getModels()
+      .find((model) => model.uri.toString().includes("/instruction.md"))!
+      .setValue("Always verify E2E changes.");
+  });
+  await page.getByRole("button", { name: "Save revision" }).click();
+  await expect(page.getByRole("button", { name: /E2E instructions e2e-instructions · r2/ })).toBeVisible();
+  await page.waitForFunction(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string } }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()
+      .some((model) => model.uri.toString().includes("/instruction.md"));
+  });
+  await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string }; setValue(value: string): void }[] } };
+    };
+    browserWindow.monaco.editor.getModels()
+      .find((model) => model.uri.toString().includes("/instruction.md"))!
+      .setValue("Keep this local E2E draft.");
+  });
+  const concurrentStatus = await page.evaluate(async () => {
+    const data = await (await fetch("/api/v1/resources")).json() as {
+      resources: { id: string; slug: string; revisionId: string }[];
+      files: {
+        resourceId: string;
+        relativePath: string;
+        blobSha256: string;
+        mediaType: string;
+        executable: boolean;
+      }[];
+    };
+    const resource = data.resources.find(({ slug }) => slug === "e2e-instructions")!;
+    const descriptor = await (await fetch("/api/v1/blobs", {
+      method: "PUT",
+      headers: { "Content-Type": "text/markdown" },
+      body: "Concurrent E2E server edit.",
+    })).json() as { sha256: string };
+    const files = data.files
+      .filter(({ resourceId }) => resourceId === resource.id)
+      .map((file) => ({
+        relativePath: file.relativePath,
+        blobSha256: descriptor.sha256,
+        mediaType: file.mediaType,
+        executable: file.executable,
+      }));
+    return (await fetch(`/api/v1/resources/${resource.id}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        "If-Match": `"${resource.revisionId}"`,
+      },
+      body: JSON.stringify({ files }),
+    })).status;
+  });
+  expect(concurrentStatus).toBe(200);
+  await page.getByRole("button", { name: "Save revision" }).click();
+  const conflictPanel = page.locator(".conflict-panel");
+  await expect(conflictPanel.getByRole("heading", { name: "Resource revision changed" })).toBeVisible();
+  await expect(conflictPanel.getByText("Keep this local E2E draft.", { exact: true })).toBeVisible();
+  await expect(conflictPanel.getByText("Concurrent E2E server edit.", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Keep mine as new revision" }).click();
+  await expect(page.getByRole("button", { name: /E2E instructions e2e-instructions · r4/ })).toBeVisible();
+
+  await page.getByRole("button", { name: "New skill" }).click();
   await page.getByLabel("Name").fill("E2E skill");
   await page.getByLabel("Slug").fill("e2e-skill");
-  await page.locator('input[name="files"]').setInputFiles(resolve(import.meta.dirname, "fixtures/portable-skill"));
-  await page.getByRole("button", { name: "Create revision" }).click();
-  await page.getByText("E2E skill", { exact: true }).click();
-  await expect(page.getByText("SKILL.md", { exact: true })).toBeVisible();
-  await expect(page.getByText("assets/info.txt", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Create skill" }).click();
+  await expect(page.getByRole("button", { name: "SKILL.md" })).toBeVisible();
+  await page.getByRole("button", { name: "New file" }).click();
+  await page.getByLabel("Relative path").fill("assets/info.txt");
+  await page.getByRole("button", { name: "Create file" }).click();
+  await page.waitForFunction(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string } }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()
+      .some((model) => model.uri.toString().includes("/assets/info.txt"));
+  });
+  await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string }; setValue(value: string): void }[] } };
+    };
+    browserWindow.monaco.editor.getModels()
+      .find((model) => model.uri.toString().includes("/assets/info.txt"))!
+      .setValue("portable skill asset");
+  });
+  await page.getByRole("button", { name: "Save revision" }).click();
+  await expect(page.getByRole("button", { name: /E2E skill e2e-skill · r3/ })).toBeVisible();
+
+  await page.getByRole("link", { name: /Configuration/ }).click();
+  await page.getByRole("link", { name: /E2E workstation Agent · claude-code/ }).click();
+  await page.getByRole("checkbox", { name: /E2E instructions/ }).click();
+  await expect(page.getByRole("checkbox", { name: /E2E instructions/ })).toBeChecked();
+  await page.getByRole("checkbox", { name: /E2E skill/ }).click();
+  await expect(page.getByRole("checkbox", { name: /E2E skill/ })).toBeChecked();
 
   await page.getByRole("link", { name: /Releases/ }).click();
   await expect(page.getByRole("heading", { name: "Releases", exact: true })).toBeVisible();
