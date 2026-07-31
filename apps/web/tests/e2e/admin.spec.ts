@@ -39,12 +39,55 @@ test("administers a configuration through release without retaining one-time sec
   await expect(page.getByLabel("Managed surface")).toHaveCount(0);
   await page.getByRole("button", { name: "New", exact: true }).click();
   await page.getByLabel("Relative path").fill("rules/e2e.md");
+  let releaseFirstCreate!: () => void;
+  const firstCreateGate = new Promise<void>((resolve) => {
+    releaseFirstCreate = resolve;
+  });
+  let reportFirstCreate!: () => void;
+  const firstCreatePaused = new Promise<void>((resolve) => {
+    reportFirstCreate = resolve;
+  });
+  let createRequestCount = 0;
+  const createRoute = "**/configs/claude-code/files";
+  await page.route(createRoute, async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    createRequestCount += 1;
+    if (createRequestCount === 1) {
+      reportFirstCreate();
+      await firstCreateGate;
+    }
+    await route.continue();
+  });
   const createFileResponse = page.waitForResponse((response) => (
     response.request().method() === "POST" &&
     response.url().endsWith("/configs/claude-code/files")
   ));
-  await page.getByRole("button", { name: "Create", exact: true }).click();
+  const createButton = page.getByRole("button", { name: "Create", exact: true });
+  const newButton = page.getByRole("button", { name: "New", exact: true });
+  const uploadInput = page.getByLabel("Upload file");
+  const deleteButton = page.getByRole("button", { name: "Delete", exact: true });
+  const createClick = createButton.click();
+  await firstCreatePaused;
+  await expect(newButton).toBeDisabled();
+  await expect(uploadInput).toBeDisabled();
+  await expect(createButton).toBeDisabled();
+  await expect(deleteButton).toBeDisabled();
+  await page.locator("form.add-file-bar").evaluate((form) => {
+    (form as HTMLFormElement).requestSubmit();
+  });
+  await page.waitForTimeout(100);
+  expect(createRequestCount).toBe(1);
+  releaseFirstCreate();
+  await createClick;
   expect((await createFileResponse).status()).toBe(201);
+  await expect(createButton).toHaveCount(0);
+  await expect(newButton).toBeEnabled();
+  await expect(uploadInput).toBeEnabled();
+  await expect(deleteButton).toBeEnabled();
+  await page.unroute(createRoute);
 
   const uploadResponse = page.waitForResponse((response) => (
     response.request().method() === "POST" &&
