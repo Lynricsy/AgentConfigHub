@@ -15,7 +15,7 @@ AgentConfigHub 是面向个人部署的单实例配置控制平面。服务端�
 ## 功能
 
 - 以命名配置组作为发布与回滚边界，每个 Agent 对应一个明确配置，并支持按配置组或 Agent 浏览
-- 原生配置文件采用不覆盖已有文件的 `New` / `Upload` 创建流程和 Monaco 编辑，共享 instructions 与可移植 Agent Skills 则支持直接修订编辑
+- 原生配置文件采用不覆盖已有文件的 `New` / `Upload` 创建流程和不中断输入焦点的 Monaco 自动保存，共享 instructions 与可移植 Agent Skills 则支持直接修订编辑
 - 带格式感知秘密槽位的信封加密 Blob 与凭据修订
 - 密码保护管理端、一次性设备配对和可撤销自动化令牌
 - 带完整备份、受管删除保护、链接/reparse point 拒绝和崩溃恢复的跨平台事务安装

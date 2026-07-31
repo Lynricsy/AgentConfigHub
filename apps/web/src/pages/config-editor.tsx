@@ -199,6 +199,7 @@ function TextFileEditor({
       );
       revision.current = result.data.revision;
       savedText.current = nextText;
+      queryClient.setQueryData(["blob-text", descriptor.sha256], nextText);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] }),
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
@@ -320,8 +321,8 @@ function TextFileEditor({
   };
   const onMount: OnMount = (editor) => { model.current = editor; };
 
-  if (source.isPending) return <Loading label="Loading file…" />;
-  if (source.error) return <ErrorNotice error={source.error} />;
+  if (source.isPending && loadedBlob.current === null) return <Loading label="Loading file…" />;
+  if (source.error && loadedBlob.current === null) return <ErrorNotice error={source.error} />;
 
   const saveStateIcon = saveState === "saved"
     ? <Check size={15} strokeWidth={1.5} aria-hidden="true" />

@@ -117,6 +117,48 @@ test("administers a configuration through release without retaining one-time sec
   });
   await saveResponse;
   await expect(page.locator(".save-state")).toHaveText("saved");
+  await page.locator(".monaco-editor .view-lines").click();
+  await page.keyboard.press("Control+End");
+  await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      __e2eEditorElement?: Element | null;
+      __e2eInput?: Element | null;
+      __e2eModel?: unknown;
+      monaco: { editor: { getModels(): unknown[] } };
+    };
+    browserWindow.__e2eEditorElement = document.querySelector(".monaco-editor");
+    browserWindow.__e2eInput = document.activeElement;
+    browserWindow.__e2eModel = browserWindow.monaco.editor.getModels()[0];
+  });
+  const firstContinuousSave = page.waitForResponse((response) => (
+    response.request().method() === "PUT" && response.url().includes("/files") && response.status() === 200
+  ));
+  await page.keyboard.insertText(" ");
+  await firstContinuousSave;
+  await expect(page.locator(".save-state")).toHaveText("saved");
+  expect(await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      __e2eEditorElement?: Element | null;
+      __e2eInput?: Element | null;
+      __e2eModel?: unknown;
+      monaco: { editor: { getModels(): unknown[] } };
+    };
+    return browserWindow.__e2eEditorElement === document.querySelector(".monaco-editor") &&
+      browserWindow.__e2eModel === browserWindow.monaco.editor.getModels()[0] &&
+      document.activeElement === browserWindow.__e2eInput;
+  })).toBe(true);
+  const secondContinuousSave = page.waitForResponse((response) => (
+    response.request().method() === "PUT" && response.url().includes("/files") && response.status() === 200
+  ));
+  await page.keyboard.insertText(" ");
+  await secondContinuousSave;
+  await expect(page.locator(".save-state")).toHaveText("saved");
+  await expect.poll(async () => await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { getValue(): string }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()[0]!.getValue();
+  })).toBe('{"model":"e2e"}  ');
   await page.reload();
   await page.getByRole("button", { name: /settings\.json/ }).click();
   await page.waitForFunction(() => "monaco" in window);
@@ -124,7 +166,7 @@ test("administers a configuration through release without retaining one-time sec
     const browserWindow = window as typeof window & {
       monaco: { editor: { getModels(): { getValue(): string }[] } };
     };
-    return browserWindow.monaco.editor.getModels()[0]!.getValue();
+    return browserWindow.monaco.editor.getModels()[0]!.getValue().trim();
   })).toBe('{"model":"e2e"}');
 
   await page.getByRole("link", { name: /Resources/ }).click();
