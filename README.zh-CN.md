@@ -55,7 +55,7 @@ export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:1a7dfb52b8
 
 ## CLI
 
-软件包暴露 `agent-config-hub` 可执行文件。本源码版本尚未执行 npm registry 发布；打包 tarball 与工作区构建已通过真实 `npx` 安装验证。
+只读拉取 CLI 以 [`agent-config-hub`](https://www.npmjs.com/package/agent-config-hub) 发布。可用 `npx --yes agent-config-hub@latest` 直接运行，或通过 `npm install --global agent-config-hub` 全局安装。
 
 ```text
 agent-config-hub login --server <url> [--name <device>]

@@ -55,7 +55,7 @@ For a local source build instead, use `docker compose up --build -d` with `compo
 
 ## CLI
 
-The package exposes the `agent-config-hub` binary. The registry publication is not part of this source release; the packaged tarball and workspace build have been verified through real `npx` installation.
+The pull-only CLI is published as [`agent-config-hub`](https://www.npmjs.com/package/agent-config-hub). Run commands with `npx --yes agent-config-hub@latest`, or install it globally with `npm install --global agent-config-hub`.
 
 ```text
 agent-config-hub login --server <url> [--name <device>]

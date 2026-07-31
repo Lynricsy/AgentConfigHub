@@ -1,25 +1,42 @@
 {
   "name": "agent-config-hub",
   "version": "0.1.0",
-  "description": "Pull-only CLI for AgentConfigHub",
+  "description": "Pull immutable AgentConfigHub releases with transactional backups and crash recovery",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "ai-agent",
+    "cli",
+    "configuration",
+    "devtools",
+    "secrets"
+  ],
+  "homepage": "https://github.com/Lynricsy/AgentConfigHub#readme",
+  "bugs": {
+    "url": "https://github.com/Lynricsy/AgentConfigHub/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lynricsy/AgentConfigHub.git",
+    "directory": "packages/cli"
+  },
   "bin": {
     "agent-config-hub": "dist/index.cjs"
   },
-  "exports": "./dist/index.cjs",
-  "types": "./dist/index.d.ts",
   "files": [
-    "dist",
-    "LICENSE"
+    "dist/index.cjs"
   ],
+  "engines": {
+    "node": ">=24"
+  },
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node24 --alias:jsonc-parser=jsonc-parser/lib/esm/main.js --outfile=dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "prepack": "pnpm --dir ../.. --filter @agent-config-hub/adapters build && pnpm build && pnpm test"
   },
   "devDependencies": {
     "@agent-config-hub/adapters": "workspace:*",
