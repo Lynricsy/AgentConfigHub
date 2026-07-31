@@ -35,7 +35,7 @@ docker compose -f compose.example.yml up -d
 示例默认拉取 `ghcr.io/lynricsy/agentconfighub:edge`，并把服务绑定到 `127.0.0.1:3000`。只有服务确实需要越过本机反向代理监听时，才应覆盖 `AGENT_CONFIG_HUB_BIND_ADDRESS`。`edge` 是可变标签；生产环境若要求可复现部署，应设置：
 
 ```bash
-export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:5e355f1e85129881d097d43dc3c4c8589a6483b71d377f18bb498afd9d909a04'
+export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:1a7dfb52b81a19a45aa28bc32873e1ae8018c0ad82bc23b98419fd3f6cc5334e'
 ```
 
 一次性 `initialize-data` 服务会先为非 root 运行时 UID `10001` 准备 `${AGENT_CONFIG_HUB_DATA_DIR:-./data}`；随后应用容器以只读根文件系统、无 Linux capability 的方式运行。请同时备份数据目录与主密钥；丢失主密钥后，加密凭据和 Blob 无法恢复。
