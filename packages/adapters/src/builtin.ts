@@ -15,6 +15,7 @@ import { assertAllowedTarget, UnsafeTargetError } from "./path-safety.js";
 
 interface AdapterDefinition {
   readonly id: AgentId;
+  readonly revision: number;
   readonly roots: readonly TargetRootId[];
   readonly defaults: Partial<Record<TargetRootId, readonly string[]>>;
   readonly surfaces: readonly ManagedSurface[];
@@ -33,6 +34,7 @@ const surface = (
 const definitions: readonly AdapterDefinition[] = [
   {
     id: "claude-code",
+    revision: 1,
     roots: ["claude-home"],
     defaults: { "claude-home": [".claude"] },
     instructionTarget: { root: "claude-home", relativePath: "CLAUDE.md" },
@@ -47,6 +49,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "codex",
+    revision: 1,
     roots: ["codex-home", "agents-home"],
     defaults: { "codex-home": [".codex"], "agents-home": [".agents"] },
     instructionTarget: { root: "codex-home", relativePath: "AGENTS.override.md" },
@@ -65,6 +68,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "opencode",
+    revision: 1,
     roots: ["opencode-home"],
     defaults: { "opencode-home": [".config", "opencode"] },
     instructionTarget: { root: "opencode-home", relativePath: "AGENTS.md" },
@@ -82,6 +86,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "pi",
+    revision: 1,
     roots: ["pi-home"],
     defaults: { "pi-home": [".pi", "agent"] },
     instructionTarget: { root: "pi-home", relativePath: "AGENTS.md" },
@@ -96,6 +101,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "omp",
+    revision: 2,
     roots: ["omp-home"],
     defaults: { "omp-home": [".omp", "agent"] },
     instructionTarget: { root: "omp-home", relativePath: "AGENTS.md" },
@@ -104,6 +110,7 @@ const definitions: readonly AdapterDefinition[] = [
     surfaces: [
       ...["config.yml", "models.yml", "keybindings.yml"].map((path) => surface("omp-home", path, "yaml")),
       surface("omp-home", "keybindings.json", "json"),
+      surface("omp-home", "mcp.json", "json"),
       surface("omp-home", "AGENTS.md", "markdown", true),
       ...["RULES.md", "SYSTEM.md", "APPEND_SYSTEM.md", "TITLE_SYSTEM.md"].map((path) => surface("omp-home", path, "markdown")),
       ...["skills", "commands", "rules", "prompts", "instructions", "hooks", "tools", "extensions"].map((directory) =>
@@ -112,6 +119,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "grok",
+    revision: 1,
     roots: ["grok-home"],
     defaults: { "grok-home": [".grok"] },
     instructionTarget: { root: "grok-home", relativePath: "rules/agent-config-hub.md" },
@@ -136,7 +144,7 @@ function renderInstructions(context: SharedRenderContext): string {
 function createAdapter(definition: AdapterDefinition): AgentAdapter {
   const adapter: AgentAdapter = {
     id: definition.id,
-    revision: 1,
+    revision: definition.revision,
     roots: definition.roots,
     surfaces: definition.surfaces,
     resolveRoot(root: TargetRootId, context: ClientPathContext): string {

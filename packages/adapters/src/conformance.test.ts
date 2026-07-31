@@ -241,6 +241,14 @@ describe.each(builtInAdapters)("$id adapter conformance", (adapter) => {
   });
 });
 
+it("accepts the OMP MCP configuration as managed JSON", () => {
+  const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
+  expect(assertAllowedTarget(adapter, {
+    root: "omp-home",
+    relativePath: "mcp.json",
+  })).toMatchObject({ format: "json", reserved: false });
+});
+
 describe("cross-platform target safety", () => {
   it.each([
     "/absolute.json",
