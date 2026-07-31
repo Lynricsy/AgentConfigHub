@@ -597,6 +597,40 @@ button, input, select, textarea { font: inherit; }
   gap: 1px;
   background: var(--line);
 }
+.config-create-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  align-items: end;
+  padding: 1.25rem;
+}
+.config-view-toggle {
+  display: flex;
+  gap: .5rem;
+}
+.config-view-toggle .btn[aria-pressed="true"] {
+  border-color: var(--volt);
+  color: var(--volt);
+  background: var(--volt-2);
+}
+.config-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+.config-section {
+  display: flex;
+  flex-direction: column;
+  gap: .8rem;
+}
+.config-section > h2 {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
 
 /* ── auth ────────────────────────────────────────── */
 .auth-stage {
@@ -1169,6 +1203,8 @@ button, input, select, textarea { font: inherit; }
   .split { grid-template-columns: 1fr; height: auto; }
   .editor-shell { grid-template-columns: 1fr; height: auto; }
   .conflict-columns { grid-template-columns: 1fr; }
+  .config-create-form { grid-template-columns: 1fr; }
+  .config-view-toggle { align-items: stretch; flex-direction: column; }
 }
 
 /* ── prefers-reduced-motion ──────────────────────── */

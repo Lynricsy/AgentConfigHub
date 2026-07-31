@@ -286,8 +286,8 @@ export function ResourcesPage() {
                 className="stack compact-form"
                 onSubmit={(event) => void setSelection(event)}
               >
-                <h3>Apply to configuration</h3>
-                <Field label="Configuration">
+                <h3>Apply to configuration group</h3>
+                <Field label="Configuration group">
                   <select
                     value={selectedConfigId ?? ""}
                     onChange={(event) => setSelectedConfigId(event.target.value)}

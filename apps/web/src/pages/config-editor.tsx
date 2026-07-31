@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { z } from "zod";
 
-import type { Diagnostic } from "@agent-config-hub/protocol";
+import { AgentId, type Diagnostic, type TargetRootId } from "@agent-config-hub/protocol";
 
 import {
   AdapterList,
@@ -36,6 +36,7 @@ import {
   uploadBlob,
   type AdapterMetadata,
   type DraftFile,
+  targetKey,
 } from "../api.js";
 import { ErrorNotice } from "../auth.js";
 import { AutosaveCoordinator, type AutosaveState } from "../autosave.js";
@@ -65,6 +66,16 @@ function mediaTypeFor(path: string): string {
   if (language === "markdown") return "text/markdown";
   return "text/plain";
 }
+function uploadedMediaTypeFor(path: string): string {
+  const lower = path.toLocaleLowerCase("en-US");
+  if (lower.endsWith(".json") || lower.endsWith(".jsonc")) return "application/json";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
+  if (lower.endsWith(".toml")) return "application/toml";
+  if (lower.endsWith(".md")) return "text/markdown";
+  if (lower.endsWith(".sh") || lower.endsWith(".txt")) return "text/plain";
+  return "application/octet-stream";
+}
+
 
 function newFileText(path: string): string {
   return languageFor(path) === "json" ? "{}\n" : "";
@@ -83,6 +94,23 @@ function surfaceAllows(pattern: string, path: string): boolean {
     .replaceAll("\u0001", ".*");
   return new RegExp(`^${escaped}$`, "u").test(path);
 }
+function targetForPath(
+  adapter: AdapterMetadata,
+  relativePath: string,
+): { root: TargetRootId; relativePath: string } {
+  const roots = new Set<TargetRootId>();
+  if (safeRelativePath(relativePath)) {
+    for (const surface of adapter.surfaces) {
+      if (!surface.reserved && surfaceAllows(surface.pattern, relativePath)) roots.add(surface.root);
+    }
+  }
+  if (roots.size === 0) {
+    throw new Error(`${relativePath} is not a managed path for ${adapter.id}.`);
+  }
+  if (roots.size > 1) throw new Error(`${relativePath} matches more than one managed root.`);
+  return { root: [...roots][0]!, relativePath };
+}
+
 
 interface SyntaxMessage {
   message: string;
@@ -419,7 +447,10 @@ function BinaryFilePanel({
   const [error, setError] = useState<unknown>();
   const replace = async (replacement: File) => {
     try {
-      const descriptor = await uploadBlob(replacement);
+      const descriptor = await uploadBlob(
+        replacement,
+        replacement.type || "application/octet-stream",
+      );
       await mutate(
         `/api/v1/config-sets/${configSetId}/files`,
         RevisionResult,
@@ -478,66 +509,81 @@ function BinaryFilePanel({
 }
 
 export function ConfigEditorPage() {
-  const { configSetId } = useParams<"configSetId">();
+  const { configSetId, agentId } = useParams<"configSetId" | "agentId">();
   const queryClient = useQueryClient();
   const [selectedFileId, setSelectedFileId] = useState<string>();
   const [adding, setAdding] = useState(false);
-  const [newFileAgent, setNewFileAgent] = useState("");
-  const [newFileSurface, setNewFileSurface] = useState(0);
   const [actionError, setActionError] = useState<unknown>();
   if (!configSetId) throw new Error("Configuration set id is missing.");
+  const parsedAgent = AgentId.safeParse(agentId);
+  const routeAgentId = parsedAgent.success ? parsedAgent.data : undefined;
   const detail = useQuery({
     queryKey: ["config-set", configSetId],
     queryFn: () => api(`/api/v1/config-sets/${configSetId}`, ConfigSetDetail),
   });
   const adapters = useQuery({ queryKey: ["adapters"], queryFn: () => api("/api/v1/adapters", AdapterList) });
+  const files = useMemo(
+    () => routeAgentId
+      ? detail.data?.files.filter((file) => file.agentId === routeAgentId) ?? []
+      : [],
+    [detail.data?.files, routeAgentId],
+  );
   useEffect(() => {
-    if (!selectedFileId && detail.data?.files[0]) setSelectedFileId(detail.data.files[0].id);
-  }, [detail.data?.files, selectedFileId]);
-  const selected = detail.data?.files.find(({ id }) => id === selectedFileId);
-  const adapter = adapters.data?.find(({ id }) => id === selected?.agentId);
-
-  const addFile = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!detail.data || !adapters.data) return;
-    const form = new FormData(event.currentTarget);
-    const agentId = String(form.get("agentId"));
-    const adapterMetadata = adapters.data.find(({ id }) => id === agentId);
-    const surfaceIndex = Number(form.get("surface"));
-    const surface = adapterMetadata?.surfaces.filter(({ reserved }) => !reserved)[surfaceIndex];
-    const relativePath = String(form.get("relativePath")).trim();
-    if (!adapterMetadata || !surface || !safeRelativePath(relativePath) || !surfaceAllows(surface.pattern, relativePath)) {
-      setActionError(new Error("Choose a managed surface and enter a safe relative path."));
+    if (files.length === 0) {
+      if (selectedFileId !== undefined) setSelectedFileId(undefined);
       return;
     }
+    if (!files.some(({ id }) => id === selectedFileId)) setSelectedFileId(files[0]!.id);
+  }, [files, selectedFileId]);
+  const selected = files.find(({ id }) => id === selectedFileId);
+  const adapter = adapters.data?.find(({ id }) => id === routeAgentId);
+
+  const createFile = async (relativePath: string, source: Blob, mediaType: string) => {
+    if (!detail.data || !adapter || !routeAgentId) return;
     try {
-      const mediaType = mediaTypeFor(relativePath);
-      const descriptor = await uploadBlob(new Blob([newFileText(relativePath)], { type: mediaType }));
+      setActionError(undefined);
+      const target = targetForPath(adapter, relativePath.trim());
+      if (files.some((file) => targetKey(file) === targetKey(target))) {
+        throw new Error(`${target.root}/${target.relativePath} already exists for ${routeAgentId}.`);
+      }
+      const descriptor = await uploadBlob(source, mediaType);
       await mutate(
-        `/api/v1/config-sets/${configSetId}/files`,
+        `/api/v1/config-sets/${configSetId}/configs/${routeAgentId}/files`,
         RevisionResult,
         {
-          agentId,
-          target: { root: surface.root, relativePath },
+          target,
           blobSha256: descriptor.sha256,
           mediaType,
-          utf8: true,
+          utf8: descriptor.monacoEligible,
           executable: false,
         },
-        { method: "PUT", revision: detail.data.configSet.draftRevision },
+        { revision: detail.data.configSet.draftRevision },
       );
       setAdding(false);
-      const refreshed = await queryClient.fetchQuery({
-        queryKey: ["config-set", configSetId],
-        queryFn: () => api(`/api/v1/config-sets/${configSetId}`, ConfigSetDetail),
-      });
+      const refreshed = await api(`/api/v1/config-sets/${configSetId}`, ConfigSetDetail);
+      queryClient.setQueryData(["config-set", configSetId], refreshed);
       setSelectedFileId(refreshed.files.find((candidate) => (
-        candidate.agentId === agentId && candidate.root === surface.root && candidate.relativePath === relativePath
+        candidate.agentId === routeAgentId && targetKey(candidate) === targetKey(target)
       ))?.id);
       await queryClient.invalidateQueries({ queryKey: ["config-sets"] });
     } catch (cause) {
+      if (cause instanceof ApiClientError && cause.code === "REVISION_CONFLICT") {
+        await queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] });
+      }
       setActionError(cause);
     }
+  };
+
+  const addFile = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const relativePath = String(form.get("relativePath")).trim();
+    const mediaType = mediaTypeFor(relativePath);
+    void createFile(
+      relativePath,
+      new Blob([newFileText(relativePath)], { type: mediaType }),
+      mediaType,
+    );
   };
 
   const removeSelected = async () => {
@@ -559,23 +605,55 @@ export function ConfigEditorPage() {
     }
   };
 
+  if (!parsedAgent.success) {
+    return <Empty title="Invalid Agent configuration." hint="Choose a valid Agent configuration link." />;
+  }
   if (detail.isPending || adapters.isPending) return <Loading label="Loading editor…" />;
   if (detail.error) return <ErrorNotice error={detail.error} />;
   if (adapters.error) return <ErrorNotice error={adapters.error} />;
   if (!detail.data) return null;
-  const filesByAgent = Map.groupBy(detail.data.files, ({ agentId }) => agentId);
+  if (!detail.data.configSet.enabledAgents.includes(parsedAgent.data)) {
+    return (
+      <Empty
+        title="This Agent configuration does not exist in the selected configuration group."
+        hint="Create it from the configurations page first."
+      />
+    );
+  }
+  if (!adapter) return <ErrorNotice error={new Error(`Adapter ${parsedAgent.data} is unavailable.`)} />;
 
   return (
     <Page
       index="02"
-      eyebrow={detail.data.configSet.slug}
+      eyebrow={`${detail.data.configSet.slug} · ${parsedAgent.data}`}
       title={detail.data.configSet.name}
       actions={(
         <>
           <button className="btn" onClick={() => setAdding((value) => !value)}>
             <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
-            Add file
+            New
           </button>
+          <label className="btn">
+            <Upload size={15} strokeWidth={1.5} aria-hidden="true" />
+            Upload
+            <input
+              aria-label="Upload file"
+              className="visually-hidden"
+              type="file"
+              onChange={(event) => {
+                const input = event.currentTarget;
+                const file = input.files?.[0];
+                if (!file) return;
+                void createFile(
+                  file.name,
+                  file,
+                  file.type || uploadedMediaTypeFor(file.name),
+                ).finally(() => {
+                  input.value = "";
+                });
+              }}
+            />
+          </label>
           <button
             className="btn btn-danger"
             disabled={!selected}
@@ -588,42 +666,7 @@ export function ConfigEditorPage() {
       )}
     >
       {adding && (
-        <form className="add-file-bar" onSubmit={(event) => void addFile(event)}>
-          <label>
-            Agent
-            <select
-              name="agentId"
-              required
-              value={newFileAgent || detail.data.configSet.enabledAgents[0]}
-              onChange={(event) => {
-                setNewFileAgent(event.target.value);
-                setNewFileSurface(0);
-              }}
-            >
-              {detail.data.configSet.enabledAgents.map((agentId) => (
-                <option key={agentId}>{agentId}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Managed surface
-            <select
-              name="surface"
-              required
-              value={newFileSurface}
-              onChange={(event) => setNewFileSurface(Number(event.target.value))}
-            >
-              {adapters.data
-                ?.find(({ id }) => id === (newFileAgent || detail.data.configSet.enabledAgents[0]))
-                ?.surfaces
-                .filter(({ reserved }) => !reserved)
-                .map((surface, index) => (
-                  <option key={`${surface.root}-${surface.pattern}`} value={index}>
-                    {surface.root} · {surface.pattern}
-                  </option>
-                ))}
-            </select>
-          </label>
+        <form className="add-file-bar" onSubmit={addFile}>
           <div className="grow">
             <Field label="Relative path">
               <input name="relativePath" placeholder="settings.json" required />
@@ -637,41 +680,36 @@ export function ConfigEditorPage() {
       {actionError !== undefined && <ErrorNotice error={actionError} />}
       <div className="editor-shell">
         <aside className="file-tree">
-          {[...filesByAgent.entries()].map(([agentId, files]) => (
-            <section key={agentId}>
-              <h3 className="eyebrow">{agentId}</h3>
-              {files.map((file) => {
-                const FileIcon = file.utf8 ? FileCode : Database;
-                const active = file.id === selectedFileId;
-                return (
-                  <button
-                    className={active ? "selected" : ""}
-                    key={file.id}
-                    onClick={() => setSelectedFileId(file.id)}
-                  >
-                    {active && (
-                      <motion.span
-                        className="file-active"
-                        layoutId="file-active"
-                        style={{
-                          position: "absolute",
-                          inset: "0 auto 0 0",
-                          width: 2,
-                          background: "var(--volt)",
-                        }}
-                      />
-                    )}
-                    <FileIcon size={15} strokeWidth={1.5} aria-hidden="true" />
-                    <span>
-                      <strong>{file.relativePath.split("/").at(-1)}</strong>
-                      <small>{file.root}/{file.relativePath}</small>
-                    </span>
-                  </button>
-                );
-              })}
-            </section>
-          ))}
-          {detail.data.files.length === 0 && (
+          {files.map((file) => {
+            const FileIcon = file.utf8 ? FileCode : Database;
+            const active = file.id === selectedFileId;
+            return (
+              <button
+                className={active ? "selected" : ""}
+                key={file.id}
+                onClick={() => setSelectedFileId(file.id)}
+              >
+                {active && (
+                  <motion.span
+                    className="file-active"
+                    layoutId="file-active"
+                    style={{
+                      position: "absolute",
+                      inset: "0 auto 0 0",
+                      width: 2,
+                      background: "var(--volt)",
+                    }}
+                  />
+                )}
+                <FileIcon size={15} strokeWidth={1.5} aria-hidden="true" />
+                <span>
+                  <strong>{file.relativePath.split("/").at(-1)}</strong>
+                  <small>{file.root}/{file.relativePath}</small>
+                </span>
+              </button>
+            );
+          })}
+          {files.length === 0 && (
             <p className="muted tree-empty">No native files yet.</p>
           )}
         </aside>
@@ -682,7 +720,7 @@ export function ConfigEditorPage() {
               hint="Each file keeps an independent Monaco model and undo history."
             />
           )}
-          {selected && selected.utf8 && selected.size <= MONACO_LIMIT && adapter && (
+          {selected && selected.utf8 && selected.size <= MONACO_LIMIT && (
             <TextFileEditor
               key={selected.id}
               configSetId={configSetId}

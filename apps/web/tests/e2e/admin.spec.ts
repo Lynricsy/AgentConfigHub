@@ -13,24 +13,58 @@ test("administers a configuration through release without retaining one-time sec
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/config-sets$/);
 
-  await page.getByRole("button", { name: "New configuration" }).click();
-  await page.getByLabel("Name").fill("E2E workstation");
-  await page.getByLabel("Slug").fill("e2e-workstation");
-  await page.getByRole("button", { name: "Create set" }).click();
-  await page.getByRole("link", { name: /E2E workstation/ }).click();
-  await page.getByRole("button", { name: "Add file" }).click();
-  await page.locator('select[name="agentId"]').selectOption("claude-code");
-  const settingsSurface = page.locator('select[name="surface"] option').filter({ hasText: "settings.json" }).first();
-  await page.locator('select[name="surface"]').selectOption((await settingsSurface.getAttribute("value"))!);
-  await page.getByLabel("Relative path").fill("settings.json");
+  await page.getByRole("button", { name: "New config" }).click();
+  await page.getByLabel("Configuration group").selectOption({ label: "New configuration group…" });
+  await page.getByLabel("Agent").selectOption("claude-code");
+  await page.getByLabel("Group name").fill("E2E workstation");
+  await page.getByLabel("Group slug").fill("e2e-workstation");
+  await page.getByRole("button", { name: "Create config" }).click();
+
+  await page.getByRole("button", { name: "New config" }).click();
+  await page.getByLabel("Configuration group").selectOption({ label: "E2E workstation · e2e-workstation" });
+  await page.getByLabel("Agent").selectOption("omp");
+  await page.getByRole("button", { name: "Create config" }).click();
+
+  await expect(page.getByRole("button", { name: "By group" })).toHaveAttribute("aria-pressed", "true");
+  const groupSection = page.getByRole("region", { name: "E2E workstation" });
+  await expect(groupSection.locator('a[href$="/configs/claude-code"]')).toBeVisible();
+  await expect(groupSection.locator('a[href$="/configs/omp"]')).toBeVisible();
+  await page.getByRole("button", { name: "By Agent" }).click();
+  const claudeSection = page.getByRole("region", { name: "claude-code" });
+  const ompSection = page.getByRole("region", { name: "omp" });
+  await expect(claudeSection.getByRole("link", { name: /E2E workstation/ })).toBeVisible();
+  await expect(ompSection.getByRole("link", { name: /E2E workstation/ })).toBeVisible();
+  await claudeSection.getByRole("link", { name: /E2E workstation/ }).click();
+  await expect(page).toHaveURL(/\/config-sets\/[^/]+\/configs\/claude-code$/);
+
+  await expect(page.getByLabel("Agent")).toHaveCount(0);
+  await expect(page.getByLabel("Managed surface")).toHaveCount(0);
+  await page.getByRole("button", { name: "New", exact: true }).click();
+  await page.getByLabel("Relative path").fill("rules/e2e.md");
   const createFileResponse = page.waitForResponse((response) => (
-    response.request().method() === "PUT" && response.url().endsWith("/files")
+    response.request().method() === "POST" &&
+    response.url().endsWith("/configs/claude-code/files")
   ));
   await page.getByRole("button", { name: "Create", exact: true }).click();
-  expect((await createFileResponse).ok()).toBe(true);
-  await page.reload();
-  await expect(page.getByRole("button", { name: /settings\.json/ })).toBeVisible();
+  expect((await createFileResponse).status()).toBe(201);
+
+  const uploadResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST" &&
+    response.url().endsWith("/configs/claude-code/files")
+  ));
+  await page.getByLabel("Upload file").setInputFiles({
+    name: "settings.json",
+    mimeType: "application/json",
+    buffer: Buffer.from('{"model":"uploaded"}'),
+  });
+  expect((await uploadResponse).status()).toBe(201);
   await page.waitForFunction(() => "monaco" in window);
+  await expect.poll(async () => await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { getValue(): string }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()[0]!.getValue();
+  })).toBe('{"model":"uploaded"}');
   const saveResponse = page.waitForResponse((response) => (
     response.request().method() === "PUT" && response.url().includes("/files") && response.status() === 200
   ));
@@ -43,6 +77,7 @@ test("administers a configuration through release without retaining one-time sec
   await saveResponse;
   await expect(page.locator(".save-state")).toHaveText("saved");
   await page.reload();
+  await page.getByRole("button", { name: /settings\.json/ }).click();
   await page.waitForFunction(() => "monaco" in window);
   await expect.poll(async () => await page.evaluate(() => {
     const browserWindow = window as typeof window & {
@@ -70,7 +105,7 @@ test("administers a configuration through release without retaining one-time sec
 
   await page.getByRole("link", { name: /Releases/ }).click();
   await expect(page.getByRole("heading", { name: "Releases", exact: true })).toBeVisible();
-  const configuration = page.getByLabel("Configuration");
+  const configuration = page.getByLabel("Configuration group");
   const configurationId = await configuration.locator("option").filter({ hasText: "E2E workstation" }).getAttribute("value");
   expect(configurationId).toBeTruthy();
   await configuration.selectOption(configurationId!);
@@ -110,7 +145,7 @@ test("redesign visual invariants", async ({ page }) => {
   await expect(page.locator("canvas.fx-grain")).toHaveCount(1);
 
   // Monaco switched to ach-void theme (background #080b0e)
-  await page.getByRole("link", { name: /E2E workstation/ }).click();
+  await page.locator('a[href$="/configs/claude-code"]').first().click();
   await page.waitForFunction(() => "monaco" in window);
   await expect.poll(async () => await page.evaluate(
     () => getComputedStyle(document.querySelector(".monaco-editor")!).backgroundColor,

@@ -23,7 +23,7 @@ export function App() {
       <Route element={<AuthGate><AppShell /></AuthGate>}>
         <Route index element={<Navigate to="/config-sets" replace />} />
         <Route path="/config-sets" element={<ConfigSetListPage />} />
-        <Route path="/config-sets/:configSetId" element={<ConfigEditorPage />} />
+        <Route path="/config-sets/:configSetId/configs/:agentId" element={<ConfigEditorPage />} />
         <Route path="/resources" element={<ResourcesPage />} />
         <Route path="/credentials" element={<CredentialsPage />} />
         <Route path="/releases" element={<ReleasesPage />} />

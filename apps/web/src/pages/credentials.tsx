@@ -204,7 +204,7 @@ export function CredentialsPage() {
             <p className="eyebrow">Effective bindings</p>
             <h2 className="display-sm">Secret slot matrix</h2>
           </div>
-          <Field label="Configuration">
+          <Field label="Configuration group">
             <select
               value={configSetId}
               onChange={(event) => setConfigSetId(event.target.value)}

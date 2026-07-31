@@ -6,7 +6,7 @@
 
 ## Overview
 
-AgentConfigHub is a personal, single-instance configuration control plane. Its server is the only source of truth: administrators edit named configuration sets in a password-protected Web UI, publish immutable releases, and approved devices pull those releases with a standalone CLI. Clients never upload local agent configuration.
+AgentConfigHub is a personal, single-instance configuration control plane. Its server is the only source of truth: administrators create Agent configurations inside named configuration groups in a password-protected Web UI, publish each group as an immutable release, and approved devices pull those releases with a standalone CLI. Clients never upload local agent configuration.
 
 ## Why AgentConfigHub
 
@@ -14,8 +14,8 @@ AI coding agents use different files, roots, formats, and authentication convent
 
 ## Features
 
-- Named, independent configuration sets and immutable releases with rollback
-- Monaco-based native file editing, diagnostics, shared instructions, and portable Agent Skills
+- Named configuration groups as release and rollback boundaries, with one explicit configuration per Agent and `By group` / `By Agent` browsing
+- Create-only `New` / `Upload` file flows, Monaco-based native file editing, diagnostics, shared instructions, and portable Agent Skills
 - Envelope-encrypted blobs and credential revisions with format-aware secret slots
 - Password-protected administration, one-time device pairing, and revocable automation tokens
 - Transactional cross-platform installation with full backups, managed-file deletion safety, symlink/reparse-point refusal, and crash recovery

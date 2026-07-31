@@ -99,9 +99,9 @@ export const ReleaseList = z.array(z.object({
 export const AdapterList = z.array(z.object({
   id: AgentId,
   revision: z.number().int(),
-  roots: z.array(z.string()),
+  roots: z.array(TargetRootId),
   surfaces: z.array(z.object({
-    root: z.string(),
+    root: TargetRootId,
     pattern: z.string(),
     format: z.string(),
     reserved: z.boolean(),
@@ -191,16 +191,39 @@ export async function mutateEmpty(
   }));
 }
 
-export async function uploadBlob(file: Blob): Promise<{ sha256: string; size: number; mediaType: string | undefined }> {
+export async function uploadBlob(
+  file: Blob,
+  mediaType = file.type || "application/octet-stream",
+): Promise<{
+  sha256: string;
+  size: number;
+  mediaType?: string;
+  monacoEligible: boolean;
+}> {
   const response = await checkedResponse(await fetch("/api/v1/blobs", {
     method: "PUT",
     credentials: "include",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
+    headers: { "Content-Type": mediaType },
     body: file,
   }));
-  const descriptor = z.object({ sha256: z.string(), size: z.number(), mediaType: z.string().optional() })
-    .parse(await response.json());
-  return { ...descriptor, mediaType: descriptor.mediaType };
+  const descriptor = z.object({
+    sha256: z.string(),
+    size: z.number(),
+    mediaType: z.string().optional(),
+    monacoEligible: z.boolean(),
+  }).parse(await response.json());
+  return descriptor.mediaType === undefined
+    ? {
+        sha256: descriptor.sha256,
+        size: descriptor.size,
+        monacoEligible: descriptor.monacoEligible,
+      }
+    : {
+        sha256: descriptor.sha256,
+        size: descriptor.size,
+        mediaType: descriptor.mediaType,
+        monacoEligible: descriptor.monacoEligible,
+      };
 }
 
 export async function downloadBlob(sha256: string): Promise<Blob> {

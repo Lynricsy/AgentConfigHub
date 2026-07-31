@@ -124,7 +124,7 @@ export function ReleasesPage() {
       title="Releases"
       lede="Validate, freeze, compare, and restore exact output bytes."
       actions={(
-        <Field label="Configuration">
+        <Field label="Configuration group">
           <select
             value={configSetId}
             onChange={(event) => {
