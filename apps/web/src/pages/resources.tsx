@@ -107,6 +107,7 @@ function ResourceFileEditor({
     resource: Resource;
     files: ResourceFile[];
     serverText: string;
+    latest: ResourceData;
   }>();
   useEffect(() => {
     if (source.data === undefined) return;
@@ -162,7 +163,7 @@ function ResourceFileEditor({
           const serverText = latestFile === undefined
             ? ""
             : await (await downloadBlob(latestFile.blobSha256)).text();
-          setConflict({ resource: latestResource, files: latestFiles, serverText });
+          setConflict({ resource: latestResource, files: latestFiles, serverText, latest });
           setError(undefined);
         } catch (refreshError) {
           setError(refreshError);
@@ -227,8 +228,7 @@ function ResourceFileEditor({
               className="btn"
               disabled={saving}
               onClick={() => {
-                setText(conflict.serverText);
-                setSavedText(conflict.serverText);
+                queryClient.setQueryData(["resources"], conflict.latest);
                 setConflict(undefined);
               }}
               type="button"

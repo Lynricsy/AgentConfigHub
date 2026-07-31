@@ -293,6 +293,7 @@ button, input, select, textarea { font: inherit; }
 .btn:hover:not(:disabled)::before,
 .btn:hover:not(:disabled)::after { opacity: 1; transform: translate(0,0); }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn[aria-disabled="true"] { opacity: .4; cursor: not-allowed; pointer-events: none; }
 .btn-primary {
   background: var(--volt);
   color: var(--volt-ink);

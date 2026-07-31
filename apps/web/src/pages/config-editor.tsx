@@ -635,6 +635,8 @@ export function ConfigEditorPage() {
   const [selectedFileId, setSelectedFileId] = useState<string>();
   const [adding, setAdding] = useState(false);
   const [actionError, setActionError] = useState<unknown>();
+  const [creatingFile, setCreatingFile] = useState(false);
+  const creatingFileRef = useRef(false);
   if (!configSetId) throw new Error("Configuration set id is missing.");
   const parsedAgent = AgentId.safeParse(agentId);
   const routeAgentId = parsedAgent.success ? parsedAgent.data : undefined;
@@ -660,7 +662,9 @@ export function ConfigEditorPage() {
   const adapter = adapters.data?.find(({ id }) => id === routeAgentId);
 
   const createFile = async (relativePath: string, source: Blob, mediaType: string) => {
-    if (!detail.data || !adapter || !routeAgentId) return;
+    if (!detail.data || !adapter || !routeAgentId || creatingFileRef.current) return;
+    creatingFileRef.current = true;
+    setCreatingFile(true);
     try {
       setActionError(undefined);
       const target = targetForPath(adapter, relativePath.trim());
@@ -692,6 +696,9 @@ export function ConfigEditorPage() {
         await queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] });
       }
       setActionError(cause);
+    } finally {
+      creatingFileRef.current = false;
+      setCreatingFile(false);
     }
   };
 
@@ -750,17 +757,18 @@ export function ConfigEditorPage() {
       title={detail.data.configSet.name}
       actions={(
         <>
-          <button className="btn" onClick={() => setAdding((value) => !value)}>
+          <button className="btn" disabled={creatingFile} onClick={() => setAdding((value) => !value)}>
             <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
             New
           </button>
-          <label className="btn">
+          <label aria-disabled={creatingFile} className="btn">
             <Upload size={15} strokeWidth={1.5} aria-hidden="true" />
             Upload
             <input
               aria-label="Upload file"
               className="visually-hidden"
               type="file"
+              disabled={creatingFile}
               onChange={(event) => {
                 const input = event.currentTarget;
                 const file = input.files?.[0];
@@ -777,7 +785,7 @@ export function ConfigEditorPage() {
           </label>
           <button
             className="btn btn-danger"
-            disabled={!selected}
+            disabled={!selected || creatingFile}
             onClick={() => void removeSelected()}
           >
             <Trash2 size={15} strokeWidth={1.5} aria-hidden="true" />
@@ -790,10 +798,10 @@ export function ConfigEditorPage() {
         <form className="add-file-bar" onSubmit={addFile}>
           <div className="grow">
             <Field label="Relative path">
-              <input name="relativePath" placeholder="settings.json" required />
+              <input disabled={creatingFile} name="relativePath" placeholder="settings.json" required />
             </Field>
           </div>
-          <MagneticButton className="btn btn-primary" type="submit">
+          <MagneticButton className="btn btn-primary" disabled={creatingFile} type="submit">
             Create
           </MagneticButton>
         </form>

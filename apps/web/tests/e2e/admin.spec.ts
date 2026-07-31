@@ -162,8 +162,34 @@ test("administers a configuration through release without retaining one-time sec
   await expect(conflictPanel.getByRole("heading", { name: "Resource revision changed" })).toBeVisible();
   await expect(conflictPanel.getByText("Keep this local E2E draft.", { exact: true })).toBeVisible();
   await expect(conflictPanel.getByText("Concurrent E2E server edit.", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Keep mine as new revision" }).click();
+  await page.getByRole("button", { name: "Reload server version" }).click();
+  await expect(page.getByRole("button", { name: /E2E instructions e2e-instructions · r3/ })).toBeVisible();
+  await page.waitForFunction(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string } }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()
+      .some((model) => model.uri.toString().includes("/instruction.md"));
+  });
+  await expect.poll(async () => await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string }; getValue(): string }[] } };
+    };
+    return browserWindow.monaco.editor.getModels()
+      .find((model) => model.uri.toString().includes("/instruction.md"))!
+      .getValue();
+  })).toBe("Concurrent E2E server edit.");
+  await page.evaluate(() => {
+    const browserWindow = window as typeof window & {
+      monaco: { editor: { getModels(): { uri: { toString(): string }; setValue(value: string): void }[] } };
+    };
+    browserWindow.monaco.editor.getModels()
+      .find((model) => model.uri.toString().includes("/instruction.md"))!
+      .setValue("Saved after reloading the server revision.");
+  });
+  await page.getByRole("button", { name: "Save revision" }).click();
   await expect(page.getByRole("button", { name: /E2E instructions e2e-instructions · r4/ })).toBeVisible();
+  await expect(conflictPanel).toHaveCount(0);
 
   await page.getByRole("button", { name: "New skill" }).click();
   await page.getByLabel("Name").fill("E2E skill");
