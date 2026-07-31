@@ -121,7 +121,7 @@ const primaryConfig: Record<AgentId, { target: LogicalTarget; format: FileFormat
   omp: {
     target: { root: "omp-home", relativePath: "config.yml" },
     format: "yaml",
-    valid: "models: {}\nfutureKey: true\n",
+    valid: "models: {}\nskills:\n  enableCodexUser: false\nfutureKey: true\n",
     invalid: "key: [",
   },
   grok: {
@@ -237,7 +237,9 @@ describe.each(builtInAdapters)("$id adapter conformance", (adapter) => {
     expect(await adapter.validate({ ...validFile, text: typeInvalidConfig[adapter.id] })).toContainEqual(
       expect.objectContaining({ code: "SCHEMA_VALIDATION_ERROR", severity: "error" }),
     );
-    expect(ADAPTER_SCHEMA_SNAPSHOTS[adapter.id].version).toMatch(/^.+-2026-07-29$/);
+    expect(ADAPTER_SCHEMA_SNAPSHOTS[adapter.id].version).toMatch(
+      adapter.id === "omp" ? /^omp-config-2026-07-31$/ : /^.+-2026-07-29$/,
+    );
   });
 });
 

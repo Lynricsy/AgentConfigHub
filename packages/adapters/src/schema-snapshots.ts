@@ -78,7 +78,7 @@ export const ADAPTER_SCHEMA_SNAPSHOTS: Record<AgentId, VendorSchemaSnapshot> = {
     }),
   },
   omp: {
-    version: "omp-config-2026-07-29",
+    version: "omp-config-2026-07-31",
     source: "https://github.com/can1357/oh-my-pi/blob/main/docs/config-usage.md",
     schema: objectSchema({
       agents: { type: "object" },
@@ -87,7 +87,7 @@ export const ADAPTER_SCHEMA_SNAPSHOTS: Record<AgentId, VendorSchemaSnapshot> = {
       instructions: { type: "array", items: { type: "string" } },
       models: { anyOf: [{ type: "array" }, { type: "object" }] },
       providers: { type: "object" },
-      skills: { type: "array", items: { type: "string" } },
+      skills: { anyOf: [{ type: "array" }, { type: "object" }] },
       tools: { type: "object" },
     }),
   },
