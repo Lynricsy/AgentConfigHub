@@ -308,6 +308,24 @@ describe("management API workflow", () => {
       },
       selectedResources: [{ resourceId: resource.id, revisionId: changedResourceRevision, selectedAgents: ["claude-code"] }],
     });
+    const staleConfigDelete = await server.inject({
+      method: "DELETE",
+      url: `/api/v1/config-sets/${configSetId}`,
+      headers: headers("10"),
+    });
+    expect(staleConfigDelete.statusCode).toBe(409);
+    expect(staleConfigDelete.json()).toMatchObject({ error: { code: "REVISION_CONFLICT" } });
+    const configDelete = await server.inject({
+      method: "DELETE",
+      url: `/api/v1/config-sets/${configSetId}`,
+      headers: headers("11"),
+    });
+    expect(configDelete.statusCode).toBe(204);
+    expect((await server.inject({
+      method: "GET",
+      url: "/api/v1/config-sets",
+      headers: { cookie },
+    })).json()).toEqual([]);
     await server.close();
     database.native.close();
   });

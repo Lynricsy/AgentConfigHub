@@ -208,6 +208,18 @@ export function registerAdminApiRoutes(
       });
     },
   );
+  server.delete<{ Params: { configSetId: string } }>(
+    "/api/v1/config-sets/:configSetId",
+    protectedMutation,
+    async (request, reply) => {
+      assertOrigin(request);
+      dependencies.configSets.delete({
+        configSetId: request.params.configSetId,
+        expectedRevision: expectedDraftRevision(request),
+      });
+      return reply.code(204).send();
+    },
+  );
   server.post<{ Params: { configSetId: string } }>(
     "/api/v1/config-sets/:configSetId/configs",
     protectedMutation,

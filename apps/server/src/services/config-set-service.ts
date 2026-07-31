@@ -4,7 +4,7 @@ import { assertAllowedTarget, getAdapter } from "@agent-config-hub/adapters";
 import { AgentId, type LogicalTarget } from "@agent-config-hub/protocol";
 
 import type { DatabaseContext } from "../db/database.js";
-import { mutateDraft } from "./draft-revision.js";
+import { mutateDraft, RevisionConflictError } from "./draft-revision.js";
 
 type DraftFileInput = {
   configSetId: string;
@@ -61,6 +61,21 @@ export class ConfigSetService {
     `).run(id, input.name, input.slug, JSON.stringify([input.agentId]), now, now);
     return { id, revision: 1 };
   }
+  delete(input: { configSetId: string; expectedRevision: number }): void {
+    this.#database.native.transaction(() => {
+      const row = this.#database.native.prepare(
+        "SELECT draft_revision AS draftRevision FROM config_sets WHERE id = ?",
+      ).get(input.configSetId) as { draftRevision: number } | undefined;
+      if (!row) throw new Error(`Config set ${input.configSetId} does not exist.`);
+      if (row.draftRevision !== input.expectedRevision) {
+        throw new RevisionConflictError(input.expectedRevision, row.draftRevision);
+      }
+      const deleted = this.#database.native.prepare("DELETE FROM config_sets WHERE id = ?")
+        .run(input.configSetId);
+      if (deleted.changes !== 1) throw new Error(`Config set ${input.configSetId} does not exist.`);
+    })();
+  }
+
 
   createAgentConfig(input: {
     configSetId: string;
