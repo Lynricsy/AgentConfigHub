@@ -19,7 +19,7 @@ AI coding agents use different files, roots, formats, and authentication convent
 - Envelope-encrypted blobs and credential revisions with format-aware secret slots
 - Password-protected administration, one-time device pairing, and revocable automation tokens
 - Transactional cross-platform installation with full backups, managed-file deletion safety, symlink/reparse-point refusal, and crash recovery
-- Built-in adapters for six coding agents and a pull-only CLI packaged for `npx`
+- Built-in adapters for six coding agents—including managed OMP MCP configuration—and a pull-only CLI packaged for `npx`
 
 ## Self-host with Docker Compose
 
@@ -35,7 +35,7 @@ docker compose -f compose.example.yml up -d
 The example pulls `ghcr.io/lynricsy/agentconfighub:edge` and binds the service to `127.0.0.1:3000` by default. Override `AGENT_CONFIG_HUB_BIND_ADDRESS` only when the service must listen beyond the local reverse proxy. `edge` is mutable; reproducible production deployments should set:
 
 ```bash
-export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:a744d005ab92363fbd85c2c4933e3a1f45301a97e5c01f74f1b48d9004f1393d'
+export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:5e355f1e85129881d097d43dc3c4c8589a6483b71d377f18bb498afd9d909a04'
 ```
 
 The one-shot `initialize-data` service prepares `${AGENT_CONFIG_HUB_DATA_DIR:-./data}` for the non-root runtime UID `10001`; the application container then runs read-only with all Linux capabilities dropped. Preserve both the data directory and master key. Losing the key makes encrypted credentials and blobs unrecoverable.

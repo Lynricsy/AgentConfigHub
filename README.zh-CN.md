@@ -19,7 +19,7 @@ AgentConfigHub 是面向个人部署的单实例配置控制平面。服务端�
 - 带格式感知秘密槽位的信封加密 Blob 与凭据修订
 - 密码保护管理端、一次性设备配对和可撤销自动化令牌
 - 带完整备份、受管删除保护、链接/reparse point 拒绝和崩溃恢复的跨平台事务安装
-- 六个内置 Agent 适配器，以及为 `npx` 打包的只拉取 CLI
+- 六个内置 Agent 适配器（包括受管 OMP MCP 配置），以及为 `npx` 打包的只拉取 CLI
 
 ## 使用 Docker Compose 自托管
 
@@ -35,7 +35,7 @@ docker compose -f compose.example.yml up -d
 示例默认拉取 `ghcr.io/lynricsy/agentconfighub:edge`，并把服务绑定到 `127.0.0.1:3000`。只有服务确实需要越过本机反向代理监听时，才应覆盖 `AGENT_CONFIG_HUB_BIND_ADDRESS`。`edge` 是可变标签；生产环境若要求可复现部署，应设置：
 
 ```bash
-export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:a744d005ab92363fbd85c2c4933e3a1f45301a97e5c01f74f1b48d9004f1393d'
+export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:5e355f1e85129881d097d43dc3c4c8589a6483b71d377f18bb498afd9d909a04'
 ```
 
 一次性 `initialize-data` 服务会先为非 root 运行时 UID `10001` 准备 `${AGENT_CONFIG_HUB_DATA_DIR:-./data}`；随后应用容器以只读根文件系统、无 Linux capability 的方式运行。请同时备份数据目录与主密钥；丢失主密钥后，加密凭据和 Blob 无法恢复。
