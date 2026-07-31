@@ -42,7 +42,12 @@ describe("PublishService", () => {
     const credentials = new CredentialService(database, masterKey);
     const publish = new PublishService(database, blobStore, new SecretBindingResolver(database, masterKey));
     const views = new ReleaseViewService(database, blobStore);
-    const configSet = configSets.create({ name: "Work", slug: "work", enabledAgents: ["claude-code", "omp"] });
+    const configSet = configSets.create({ name: "Work", slug: "work", agentId: "claude-code" });
+    let revision = configSets.createAgentConfig({
+      configSetId: configSet.id,
+      expectedRevision: configSet.revision,
+      agentId: "omp",
+    });
 
     const claudeTemplate = await blobStore.put(Readable.from(
       '{"model":"sonnet","env":{"MODEL_API_KEY":"{{secret:MODEL_API_KEY}}"}}',
@@ -50,9 +55,9 @@ describe("PublishService", () => {
     const ompTemplate = await blobStore.put(Readable.from(
       'models: []\nproviders:\n  api_key: "{{secret:MODEL_API_KEY}}"\n',
     ), "text/yaml");
-    let revision = configSets.saveFile({
+    revision = configSets.saveFile({
       configSetId: configSet.id,
-      expectedRevision: 1,
+      expectedRevision: revision,
       agentId: "claude-code",
       target: { root: "claude-home", relativePath: "settings.json" },
       blobSha256: claudeTemplate.sha256,

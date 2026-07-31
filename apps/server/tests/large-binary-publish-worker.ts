@@ -21,7 +21,7 @@ const source = Readable.from((async function* streamBinary() {
 })());
 const blob = await blobStore.put(source, "application/octet-stream");
 const configSets = new ConfigSetService(database);
-const configSet = configSets.create({ name: "Large", slug: "large", enabledAgents: ["claude-code"] });
+const configSet = configSets.create({ name: "Large", slug: "large", agentId: "claude-code" });
 const revision = configSets.saveFile({
   configSetId: configSet.id,
   expectedRevision: 1,

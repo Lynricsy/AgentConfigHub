@@ -160,7 +160,7 @@ describe("authentication and pull API", () => {
     const configSet = configSets.create({
       name: "Default",
       slug: "default",
-      enabledAgents: ["claude-code"],
+      agentId: "claude-code",
     });
     const configSetList = await server.inject({
       method: "GET", url: "/api/v1/config-sets", headers: { cookie },

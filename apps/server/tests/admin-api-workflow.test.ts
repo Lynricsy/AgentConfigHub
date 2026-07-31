@@ -83,18 +83,27 @@ describe("management API workflow", () => {
 
     const created = await server.inject({
       method: "POST", url: "/api/v1/config-sets", headers: headers(),
-      payload: { name: "Default", slug: "default", enabledAgents: ["claude-code"] },
+      payload: { name: "Default", slug: "default", agentId: "claude-code" },
     });
     expect(created.statusCode).toBe(201);
     expect(created.headers.etag).toBe("\"1\"");
     const configSetId = created.json<{ id: string }>().id;
-    expect((await server.inject({
-      method: "PATCH", url: `/api/v1/config-sets/${configSetId}`, headers: headers("1"),
-      payload: { name: "Primary", enabledAgents: ["claude-code"] },
-    })).statusCode).toBe(200);
+    const addedConfig = await server.inject({
+      method: "POST", url: `/api/v1/config-sets/${configSetId}/configs`, headers: headers("1"),
+      payload: { agentId: "omp" },
+    });
+    expect(addedConfig.statusCode).toBe(201);
+    expect(addedConfig.headers.etag).toBe("\"2\"");
+    expect(addedConfig.json()).toEqual({ revision: 2 });
+    const duplicateConfig = await server.inject({
+      method: "POST", url: `/api/v1/config-sets/${configSetId}/configs`, headers: headers("2"),
+      payload: { agentId: "omp" },
+    });
+    expect(duplicateConfig.statusCode).toBe(409);
+    expect(duplicateConfig.json()).toMatchObject({ error: { code: "AGENT_CONFIG_ALREADY_EXISTS" } });
     const stale = await server.inject({
-      method: "PATCH", url: `/api/v1/config-sets/${configSetId}`, headers: headers("1"),
-      payload: { name: "Stale", enabledAgents: ["claude-code"] },
+      method: "POST", url: `/api/v1/config-sets/${configSetId}/configs`, headers: headers("1"),
+      payload: { agentId: "codex" },
     });
     expect(stale.statusCode).toBe(409);
     expect(stale.json()).toMatchObject({ error: { code: "REVISION_CONFLICT" } });
@@ -171,17 +180,56 @@ describe("management API workflow", () => {
     })).statusCode).toBe(200);
 
     const configSha = await upload("{}", "application/json");
-    expect((await server.inject({
-      method: "PUT", url: `/api/v1/config-sets/${configSetId}/files`, headers: headers("8"),
+    const missingAgentFile = await server.inject({
+      method: "POST",
+      url: `/api/v1/config-sets/${configSetId}/configs/codex/files`,
+      headers: headers("8"),
       payload: {
-        agentId: "claude-code",
+        target: { root: "codex-home", relativePath: "config.toml" },
+        blobSha256: configSha,
+        mediaType: "application/toml",
+        utf8: true,
+        executable: false,
+      },
+    });
+    expect(missingAgentFile.statusCode).toBe(404);
+    expect(missingAgentFile.json()).toMatchObject({ error: { code: "AGENT_CONFIG_NOT_FOUND" } });
+    const createdFile = await server.inject({
+      method: "POST",
+      url: `/api/v1/config-sets/${configSetId}/configs/claude-code/files`,
+      headers: headers("8"),
+      payload: {
         target: { root: "claude-home", relativePath: "settings.json" },
         blobSha256: configSha,
         mediaType: "application/json",
         utf8: true,
         executable: false,
       },
-    })).statusCode).toBe(200);
+    });
+    expect(createdFile.statusCode).toBe(201);
+    expect(createdFile.headers.etag).toBe("\"9\"");
+    const replacementSha = await upload('{"model":"replacement"}', "application/json");
+    const duplicateFile = await server.inject({
+      method: "POST",
+      url: `/api/v1/config-sets/${configSetId}/configs/claude-code/files`,
+      headers: headers("9"),
+      payload: {
+        target: { root: "claude-home", relativePath: "settings.json" },
+        blobSha256: replacementSha,
+        mediaType: "application/json",
+        utf8: true,
+        executable: false,
+      },
+    });
+    expect(duplicateFile.statusCode).toBe(409);
+    expect(duplicateFile.json()).toMatchObject({ error: { code: "DRAFT_FILE_ALREADY_EXISTS" } });
+    const afterDuplicate = await server.inject({
+      method: "GET", url: `/api/v1/config-sets/${configSetId}`, headers: { cookie },
+    });
+    expect(afterDuplicate.json()).toMatchObject({
+      configSet: { draftRevision: 9 },
+      files: [{ agentId: "claude-code", blobSha256: configSha }],
+    });
 
     const firstPublish = await server.inject({
       method: "POST", url: `/api/v1/config-sets/${configSetId}/releases`, headers: headers("9"),
@@ -252,7 +300,12 @@ describe("management API workflow", () => {
       method: "GET", url: `/api/v1/config-sets/${configSetId}`, headers: { cookie },
     });
     expect(detail.json()).toMatchObject({
-      configSet: { name: "Primary", draftRevision: 11, currentReleaseRevision: 11 },
+      configSet: {
+        name: "Default",
+        enabledAgents: ["claude-code", "omp"],
+        draftRevision: 11,
+        currentReleaseRevision: 11,
+      },
       selectedResources: [{ resourceId: resource.id, revisionId: changedResourceRevision, selectedAgents: ["claude-code"] }],
     });
     await server.close();

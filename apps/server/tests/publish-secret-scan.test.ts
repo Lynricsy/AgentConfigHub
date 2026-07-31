@@ -29,7 +29,7 @@ describe("publish inline secret scanning", () => {
     const masterKey = await loadMasterKey({ AGENT_CONFIG_HUB_MASTER_KEY: randomBytes(32).toString("base64") });
     const blobs = new FileEncryptedBlobStore(database, masterKey, directory);
     const configSets = new ConfigSetService(database);
-    const configSet = configSets.create({ name: source, slug: source === "native Markdown" ? "native" : "skill", enabledAgents: ["claude-code"] });
+    const configSet = configSets.create({ name: source, slug: source === "native Markdown" ? "native" : "skill", agentId: "claude-code" });
     let revision = 1;
     if (source === "native Markdown") {
       const blob = await blobs.put(Readable.from("-----BEGIN PRIVATE KEY-----\nnot-real\n"), "text/markdown");

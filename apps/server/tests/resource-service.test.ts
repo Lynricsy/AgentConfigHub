@@ -36,7 +36,7 @@ describe("ResourceService", () => {
       files: [{ relativePath: "instruction.md", blobSha256: firstBlob.sha256, mediaType: "text/markdown", executable: false }],
     });
     const configSets = new ConfigSetService(database);
-    const configSet = configSets.create({ name: "Work", slug: "work-resource", enabledAgents: ["claude-code"] });
+    const configSet = configSets.create({ name: "Work", slug: "work-resource", agentId: "claude-code" });
     const selectedRevision = resources.selectForConfigSet({
       configSetId: configSet.id,
       expectedRevision: 1,

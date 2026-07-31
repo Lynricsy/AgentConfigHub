@@ -41,7 +41,7 @@ const AutomationTokenBody = z.object({ label: z.string().trim().min(1).max(120) 
 const ConfigSetBody = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  enabledAgents: AgentId.array().min(1),
+  agentId: AgentId,
 }).strict();
 
 function bearerToken(request: FastifyRequest): string | undefined {
@@ -301,9 +301,12 @@ export function registerApiRoutes(server: FastifyInstance, dependencies: ApiDepe
     const statusByCode: Record<string, number> = {
       AUTHORIZATION_PENDING: 202,
       CURRENT_RELEASE_CANNOT_BE_DELETED: 409,
+      AGENT_CONFIG_ALREADY_EXISTS: 409,
+      AGENT_CONFIG_NOT_FOUND: 404,
       DEVICE_CODE_EXPIRED: 410,
       DEVICE_CODE_CONSUMED: 410,
       INVALID_CREDENTIALS: 401,
+      DRAFT_FILE_ALREADY_EXISTS: 409,
       INVALID_REQUEST: 400,
       FST_ERR_CTP_BODY_TOO_LARGE: 413,
       ORIGIN_INVALID: 403,

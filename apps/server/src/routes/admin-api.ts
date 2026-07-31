@@ -54,6 +54,13 @@ const ResourceFile = z.object({
   mediaType: z.string().min(1),
   executable: z.boolean(),
 }).strict();
+const DraftFileBody = z.object({
+  target: LogicalTarget,
+  blobSha256: Sha256,
+  mediaType: z.string().min(1),
+  utf8: z.boolean(),
+  executable: z.boolean(),
+}).strict();
 const StoredDraftFile = z.object({
   id: z.string(),
   agentId: AgentId,
@@ -201,38 +208,42 @@ export function registerAdminApiRoutes(
       });
     },
   );
-  server.patch<{ Params: { configSetId: string } }>(
-    "/api/v1/config-sets/:configSetId",
+  server.post<{ Params: { configSetId: string } }>(
+    "/api/v1/config-sets/:configSetId/configs",
     protectedMutation,
     async (request, reply) => {
       assertOrigin(request);
-      const body = z.object({
-        name: z.string().trim().min(1).max(120),
-        enabledAgents: AgentId.array(),
-      }).strict().parse(request.body);
-      const revision = dependencies.configSets.update({
+      const body = z.object({ agentId: AgentId }).strict().parse(request.body);
+      const revision = dependencies.configSets.createAgentConfig({
         configSetId: request.params.configSetId,
         expectedRevision: expectedDraftRevision(request),
-        ...body,
+        agentId: body.agentId,
       });
-      return reply.header("ETag", `"${revision}"`).send({ revision });
+      return reply.header("ETag", `"${revision}"`).code(201).send({ revision });
     },
   );
 
 
+  server.post<{ Params: { configSetId: string; agentId: string } }>(
+    "/api/v1/config-sets/:configSetId/configs/:agentId/files",
+    protectedMutation,
+    async (request, reply) => {
+      assertOrigin(request);
+      const revision = dependencies.configSets.createFile({
+        configSetId: request.params.configSetId,
+        expectedRevision: expectedDraftRevision(request),
+        agentId: AgentId.parse(request.params.agentId),
+        ...DraftFileBody.parse(request.body),
+      });
+      return reply.header("ETag", `"${revision}"`).code(201).send({ revision });
+    },
+  );
   server.put<{ Params: { configSetId: string } }>(
     "/api/v1/config-sets/:configSetId/files",
     protectedMutation,
     async (request, reply) => {
       assertOrigin(request);
-      const body = z.object({
-        agentId: AgentId,
-        target: LogicalTarget,
-        blobSha256: Sha256,
-        mediaType: z.string().min(1),
-        utf8: z.boolean(),
-        executable: z.boolean(),
-      }).strict().parse(request.body);
+      const body = DraftFileBody.extend({ agentId: AgentId }).parse(request.body);
       const revision = dependencies.configSets.saveFile({
         configSetId: request.params.configSetId,
         expectedRevision: expectedDraftRevision(request),
