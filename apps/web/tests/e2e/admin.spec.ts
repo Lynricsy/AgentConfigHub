@@ -621,3 +621,47 @@ test("hides a stale diff when the compared release disappears", async ({ page })
   await expect(page.getByRole("combobox", { name: "After", exact: true })).toContainText("Choose…");
   await expect(diffEntry).toHaveCount(0);
 });
+
+test("never shows one credential's plaintext in another's reveal dialog", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Credentials/ }).click();
+
+  for (const [label, provider, value] of [
+    ["Alpha key", "alpha", "sk-alpha-plaintext"],
+    ["Beta key", "beta", "sk-beta-plaintext"],
+  ]) {
+    await page.getByRole("button", { name: "New credential" }).click();
+    await page.getByLabel("Label").fill(label);
+    await page.getByLabel("Provider").fill(provider);
+    await page.getByLabel("Value").fill(value);
+    await page.getByRole("button", { name: "Encrypt & save" }).click();
+    await expect(page.getByText(label, { exact: true })).toBeVisible();
+  }
+
+  // 揭示请求慢慢返回,给"关掉再打开另一条"留出窗口
+  await page.route("**/api/v1/credentials/*/reveal", async (route) => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 2000);
+    await promise;
+    await route.continue();
+  });
+
+  await page.getByRole("button", { name: "Reveal Alpha key" }).click();
+  // 必须真的填密码,否则原生 required 会挡住提交,请求根本不会发出,竞态也就不存在
+  await page.getByLabel("Administrator password").fill("correct-password");
+  const revealResponse = page.waitForResponse((response) =>
+    response.url().includes("/reveal") && response.request().method() === "POST");
+  await page.getByRole("button", { name: "Reveal once" }).click();
+
+  // 请求在途:关掉 Alpha 的弹窗,改开 Beta 的
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Reveal Beta key" }).click();
+  await expect(page.getByLabel("Administrator password")).toBeVisible();
+
+  // 等 Alpha 的响应真正落地(而不是靠固定睡眠):它的明文绝不能出现在 Beta 的弹窗里
+  expect((await revealResponse).status()).toBe(200);
+  await expect(page.getByText("sk-alpha-plaintext")).toHaveCount(0);
+  await expect(page.getByLabel("Administrator password")).toBeVisible();
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});

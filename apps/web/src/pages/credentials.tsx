@@ -36,7 +36,9 @@ export function CredentialsPage() {
   const [creating, setCreating] = useState(false);
   const [rotatingId, setRotatingId] = useState<string>();
   const [revealingId, setRevealingId] = useState<string>();
-  const [revealedValue, setRevealedValue] = useState<string>();
+  // 明文必须记住它属于哪条 credential:揭示 A 的请求在途时用户可以关掉弹窗再打开 B,
+  // 只存字符串的话 A 的明文会渲染在 B 的弹窗里(错误已经按 id 过滤了,明文却没有)
+  const [revealed, setRevealed] = useState<{ id: string; value: string }>();
   const [configSetId, setConfigSetId] = useState("");
   const [addSlotCredentialId, setAddSlotCredentialId] = useState(NONE);
   const [pendingAction, setPendingAction] = useState<"create" | "rotate" | "reveal">();
@@ -58,12 +60,15 @@ export function CredentialsPage() {
     queryFn: () => api(`/api/v1/config-sets/${effectiveConfigSetId}`, ConfigSetDetail),
     enabled: Boolean(effectiveConfigSetId),
   });
+  const revealedValue = revealed !== undefined && revealed.id === revealingId
+    ? revealed.value
+    : undefined;
   useEffect(() => {
-    if (revealedValue === undefined) return;
-    const timer = window.setTimeout(() => setRevealedValue(undefined), 30_000);
+    if (revealed === undefined) return;
+    const timer = window.setTimeout(() => setRevealed(undefined), 30_000);
     return () => window.clearTimeout(timer);
-  }, [revealedValue]);
-  useEffect(() => () => setRevealedValue(undefined), []);
+  }, [revealed]);
+  useEffect(() => () => setRevealed(undefined), []);
 
   const submitSensitive = async (
     event: FormEvent<HTMLFormElement>,
@@ -92,7 +97,7 @@ export function CredentialsPage() {
         toast.success("Credential updated");
       } else if (action === "reveal" && id) {
         const result = await mutate(`/api/v1/credentials/${id}/reveal`, z.object({ value: z.string() }), input);
-        setRevealedValue(result.data.value);
+        setRevealed({ id, value: result.data.value });
         toast.success("Credential revealed");
       }
       if (action !== "reveal") await Promise.all([
@@ -132,7 +137,7 @@ export function CredentialsPage() {
   };
   const closeReveal = () => {
     setRevealingId(undefined);
-    setRevealedValue(undefined);
+    setRevealed(undefined);
     setActionError(undefined);
   };
 
@@ -188,16 +193,24 @@ export function CredentialsPage() {
               <p className="text-xs text-muted-foreground">{credential.referenceCount} references</p>
             </CardContent>
             <CardFooter>
-              <Button variant="outline" size="sm" onClick={() => setRotatingId(credential.id)} type="button">
+              {/* 每张卡片都有同名的 Rotate/Reveal,只读文案对屏幕阅读器是歧义的 —— 带上标签 */}
+              <Button
+                aria-label={`Rotate ${credential.label}`}
+                variant="outline"
+                size="sm"
+                onClick={() => setRotatingId(credential.id)}
+                type="button"
+              >
                 <RotateCw size={15} strokeWidth={1.5} aria-hidden="true" />
                 Rotate
               </Button>
               <Button
+                aria-label={`Reveal ${credential.label}`}
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setRevealingId(credential.id);
-                  setRevealedValue(undefined);
+                  setRevealed(undefined);
                 }}
                 type="button"
               >
