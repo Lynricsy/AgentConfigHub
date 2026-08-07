@@ -5,19 +5,17 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { TriangleAlert, Zap } from "lucide-react";
 import { z } from "zod";
 
-import { AgentId } from "@agent-config-hub/protocol";
-
 import { ApiClientError, api, mutateEmpty } from "./api.js";
-import { KineticTitle } from "./fx/kinetic-title.js";
-import { Field, Loading } from "./ui/bits.js";
-import { MagneticButton } from "./ui/magnetic.js";
+import { Button } from "./ui/button.js";
+import { Card, CardContent, CardHeader } from "./ui/card.js";
+import { Field } from "./ui/field.js";
+import { Input } from "./ui/input.js";
+import { Loading } from "./ui/spinner.js";
 
 const SetupState = z.object({ required: z.boolean() });
 const Session = z.object({ authenticated: z.literal(true) });
 
 /* ── AuthStage ──────────────────────────────────────────────────────── */
-
-const marqueeText = AgentId.options.map((id) => id.toUpperCase()).join(" · ");
 
 function AuthStage({ kicker, title, children }: {
   kicker: string;
@@ -25,30 +23,20 @@ function AuthStage({ kicker, title, children }: {
   children: ReactNode;
 }): ReactElement {
   return (
-    <main className="auth-stage">
-      <div className="auth-art">
-        <div className="auth-art-icon">
-          <Zap size={22} strokeWidth={1.5} aria-hidden="true" />
-        </div>
-        <p className="eyebrow">AGENTCONFIGHUB</p>
-        <KineticTitle text="ONE SOURCE" className="display" />
-        <KineticTitle text="EVERY AGENT" className="display display-outline auth-art-extra" />
-        <p className="auth-art-desc auth-art-extra">
-          Securely version and distribute native configuration without surrendering control of your secrets.
-        </p>
-        <div className="auth-marquee" aria-hidden="true">
-          <span className="auth-marquee-inner">
-            {marqueeText} · {marqueeText} · 
-          </span>
-        </div>
-      </div>
-      <div className="auth-panel">
-        <div className="auth-card">
-          <p className="eyebrow">{kicker}</p>
-          <h2 className="display-sm">{title}</h2>
-          {children}
-        </div>
-      </div>
+    <main className="flex min-h-screen items-center justify-center p-6">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="gap-3">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <Zap className="size-5 text-primary" aria-hidden="true" />
+            <span>AgentConfigHub</span>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">{kicker}</p>
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">{children}</CardContent>
+      </Card>
     </main>
   );
 }
@@ -99,18 +87,18 @@ export function SetupPage(): ReactElement {
   };
   return (
     <AuthStage kicker="First run" title="Initialize your control plane">
-      <p className="muted">Enter the one-time setup code printed in the server logs, then choose an administrator password.</p>
-      <form className="stack" onSubmit={(event) => void submit(event)}>
+      <p className="text-sm text-muted-foreground">Enter the one-time setup code printed in the server logs, then choose an administrator password.</p>
+      <form className="flex flex-col gap-3" onSubmit={(event) => void submit(event)}>
         <Field label="Setup code">
-          <input name="setupCode" autoComplete="one-time-code" required />
+          <Input name="setupCode" autoComplete="one-time-code" required />
         </Field>
         <Field label="Administrator password">
-          <input name="password" type="password" minLength={12} autoComplete="new-password" required />
+          <Input name="password" type="password" minLength={12} autoComplete="new-password" required />
         </Field>
         {error !== undefined && <ErrorNotice error={error} />}
-        <MagneticButton className="btn btn-primary" disabled={pending} type="submit">
+        <Button disabled={pending} type="submit">
           {pending ? "Initializing…" : "Initialize"}
-        </MagneticButton>
+        </Button>
       </form>
     </AuthStage>
   );
@@ -142,15 +130,15 @@ export function LoginPage(): ReactElement {
   };
   return (
     <AuthStage kicker="Administrator" title="Welcome back">
-      <p className="muted">Sign in to edit drafts, manage credentials, and publish immutable releases.</p>
-      <form className="stack" onSubmit={(event) => void submit(event)}>
+      <p className="text-sm text-muted-foreground">Sign in to edit drafts, manage credentials, and publish immutable releases.</p>
+      <form className="flex flex-col gap-3" onSubmit={(event) => void submit(event)}>
         <Field label="Password">
-          <input name="password" type="password" autoComplete="current-password" required autoFocus />
+          <Input name="password" type="password" autoComplete="current-password" required autoFocus />
         </Field>
         {error !== undefined && <ErrorNotice error={error} />}
-        <MagneticButton className="btn btn-primary" disabled={pending} type="submit">
+        <Button disabled={pending} type="submit">
           {pending ? "Signing in…" : "Sign in"}
-        </MagneticButton>
+        </Button>
       </form>
     </AuthStage>
   );
@@ -163,8 +151,11 @@ export function ErrorNotice({ error }: { error: unknown }): ReactElement {
     ? `${error.message} · ${error.requestId}`
     : "The request could not be completed.";
   return (
-    <div className="notice notice-error" role="alert">
-      <TriangleAlert size={15} strokeWidth={1.5} aria-hidden="true" />
+    <div
+      className="flex items-start gap-2 rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+      role="alert"
+    >
+      <TriangleAlert className="size-4 shrink-0" aria-hidden="true" />
       {message}
     </div>
   );

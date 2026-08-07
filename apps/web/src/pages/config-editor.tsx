@@ -17,7 +17,6 @@ import {
   TriangleAlert,
   Upload,
 } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -43,10 +42,19 @@ import {
 } from "../api.js";
 import { ErrorNotice } from "../auth.js";
 import { AutosaveCoordinator, type AutosaveState } from "../autosave.js";
+import { cn } from "../lib/cn.js";
+import { defineMonacoThemes, monacoThemeFor } from "../monaco-theme.js";
 import { useAppStatus } from "../shell.js";
-import { Empty, Field, Loading } from "../ui/bits.js";
-import { MagneticButton } from "../ui/magnetic.js";
+import { useTheme } from "../theme.js";
+import { Badge } from "../ui/badge.js";
+import { Button, buttonVariants } from "../ui/button.js";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js";
+import { Checkbox } from "../ui/checkbox.js";
+import { Empty } from "../ui/empty.js";
+import { Field } from "../ui/field.js";
+import { Input } from "../ui/input.js";
 import { Page } from "../ui/page.js";
+import { Loading } from "../ui/spinner.js";
 
 const RevisionResult = z.object({ revision: z.number().int() });
 const MONACO_LIMIT = 2 * 1024 * 1024;
@@ -162,6 +170,7 @@ function TextFileEditor({
 }) {
   const queryClient = useQueryClient();
   const { setBlockingDiagnostics } = useAppStatus();
+  const { resolved } = useTheme();
   const language = languageFor(file.relativePath);
   const modelUri = `inmemory://agent-config-hub/${configSetId}/${file.agentId}/${file.root}/${file.relativePath}`;
   const source = useQuery({
@@ -285,30 +294,7 @@ function TextFileEditor({
 
   const beforeMount = (instance: Monaco) => {
     monaco.current = instance;
-    instance.editor.defineTheme("ach-void", {
-      base: "vs-dark",
-      inherit: true,
-      rules: [
-        { token: "comment", foreground: "3d4d47" },
-        { token: "string", foreground: "b8f35b" },
-        { token: "number", foreground: "ffc76b" },
-        { token: "keyword", foreground: "3ddcff" },
-        { token: "type", foreground: "3ddcff" },
-        { token: "key", foreground: "e9efe9" },
-      ],
-      colors: {
-        "editor.background": "#080b0e",
-        "editor.foreground": "#e9efe9",
-        "editorLineNumber.foreground": "#2b3a36",
-        "editorLineNumber.activeForeground": "#b8f35b",
-        "editor.lineHighlightBackground": "#0d1114",
-        "editorCursor.foreground": "#b8f35b",
-        "editor.selectionBackground": "#1d2f1c",
-        "editorIndentGuide.background1": "#151c1a",
-        "editorWidget.background": "#0d1114",
-        "editorWidget.border": "#1e2a27",
-      },
-    });
+    defineMonacoThemes(instance);
     if (language === "json") instance.languages.json.jsonDefaults.setDiagnosticsOptions({
       validate: true,
       allowComments: file.relativePath.endsWith(".jsonc"),
@@ -327,55 +313,67 @@ function TextFileEditor({
   const saveStateIcon = saveState === "saved"
     ? <Check size={15} strokeWidth={1.5} aria-hidden="true" />
     : saveState === "saving"
-      ? <LoaderCircle className="spin" size={15} strokeWidth={1.5} aria-hidden="true" />
+      ? <LoaderCircle className="animate-spin" size={15} strokeWidth={1.5} aria-hidden="true" />
       : saveState === "unsaved"
         ? <Dot size={15} strokeWidth={1.5} aria-hidden="true" />
         : <GitMerge size={15} strokeWidth={1.5} aria-hidden="true" />;
 
   return (
-    <div className="editor-stack">
-      <div className="editor-toolbar">
-        {saveStateIcon}
-        <span className={`save-state ${saveState}`}>{saveState}</span>
-        <span className="mono">{modelUri}</span>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-3 text-xs text-muted-foreground">
+        <span className="text-primary">{saveStateIcon}</span>
+        <span className={cn("save-state font-medium", saveState === "conflict" && "text-destructive", saveState === "unsaved" && "text-warning")}>{saveState}</span>
+        <span className="min-w-0 flex-1 truncate text-right font-mono text-[0.6875rem]">{modelUri}</span>
       </div>
-      <Editor
-        height="100%"
-        language={language}
-        path={modelUri}
-        value={text}
-        onChange={(value) => setText(value ?? "")}
-        beforeMount={beforeMount}
-        onMount={onMount}
-        keepCurrentModel
-        saveViewState
-        theme="ach-void"
-        options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2, wordWrap: "on", automaticLayout: true }}
-      />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <Editor
+          height="100%"
+          language={language}
+          path={modelUri}
+          value={text}
+          onChange={(value) => setText(value ?? "")}
+          beforeMount={beforeMount}
+          onMount={onMount}
+          keepCurrentModel
+          saveViewState
+          theme={monacoThemeFor(resolved)}
+          options={{ minimap: { enabled: false }, fontSize: 13, tabSize: 2, wordWrap: "on", automaticLayout: true }}
+        />
+      </div>
       <DiagnosticsPanel diagnostics={diagnostics} />
       {saveState === "conflict" && (
-        <div className="conflict-panel" role="alert">
+        <div
+          className="conflict-panel max-h-64 shrink-0 overflow-y-auto border-t border-destructive/40 bg-destructive/5 p-4"
+          role="alert"
+        >
           <div>
-            <strong>Revision conflict</strong>
-            <p>Your model is preserved. Compare it with the current server value.</p>
+            <h3 className="text-sm font-semibold text-destructive">Resource revision changed</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Your model is preserved. Compare it with the current server value.
+            </p>
           </div>
-          <div className="conflict-columns">
-            <div>
-              <p className="eyebrow">LOCAL MODEL</p>
-              <pre>{text}</pre>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="min-w-0">
+              <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                Local model
+              </p>
+              <pre className="max-h-32 overflow-auto rounded-md border border-border bg-card p-2 font-mono text-xs">{text}</pre>
             </div>
-            <div>
-              <p className="eyebrow">SERVER VALUE</p>
-              <pre>{serverConflictText}</pre>
+            <div className="min-w-0">
+              <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                Server value
+              </p>
+              <pre className="max-h-32 overflow-auto rounded-md border border-border bg-card p-2 font-mono text-xs">{serverConflictText}</pre>
             </div>
           </div>
-          <div className="button-row">
-            <button className="btn" onClick={() => void navigator.clipboard.writeText(text)}>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void navigator.clipboard.writeText(text)}>
               <Copy size={15} strokeWidth={1.5} aria-hidden="true" />
               Copy local
-            </button>
-            <button
-              className="btn btn-danger"
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
               onClick={() => {
                 const serverText = serverConflictText ?? "";
                 savedText.current = serverText;
@@ -385,8 +383,8 @@ function TextFileEditor({
               }}
             >
               <RotateCcw size={15} strokeWidth={1.5} aria-hidden="true" />
-              Reload server
-            </button>
+              Reload server version
+            </Button>
           </div>
         </div>
       )}
@@ -396,43 +394,54 @@ function TextFileEditor({
 
 function DiagnosticsPanel({ diagnostics }: { diagnostics: Diagnostic[] }) {
   return (
-    <section className="diagnostics">
-      <header>
-        <strong>Diagnostics</strong>
-        <span>{diagnostics.length}</span>
+    <section className="max-h-40 min-h-0 shrink-0 overflow-y-auto border-t border-border bg-card">
+      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-3 py-2">
+        <strong className="text-xs font-semibold">Diagnostics</strong>
+        <Badge variant={diagnostics.some(({ severity }) => severity === "error") ? "destructive" : "outline"}>
+          {diagnostics.length}
+        </Badge>
       </header>
       {diagnostics.length === 0
-        ? <p className="muted">No issues detected.</p>
+        ? <p className="px-3 py-3 text-xs text-muted-foreground">No issues detected.</p>
         : (
-          <AnimatePresence initial={false}>
+          <div className="divide-y divide-border">
             {diagnostics.map((diagnostic, index) => {
               const Icon = diagnostic.severity === "error"
                 ? CircleAlert
                 : diagnostic.severity === "warning"
                   ? TriangleAlert
                   : Info;
-              const borderColor = diagnostic.severity === "error"
-                ? "var(--danger)"
-                : diagnostic.severity === "warning"
-                  ? "var(--warn)"
-                  : "var(--volt)";
               return (
-                <motion.div
-                  className={`diagnostic ${diagnostic.severity}`}
+                <div
+                  className="grid grid-cols-[auto_auto_1fr] items-start gap-2 px-3 py-2 text-xs"
                   key={`${diagnostic.code}-${index}`}
-                  style={{ borderLeftColor: borderColor }}
-                  initial={{ opacity: 0, x: -8 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -8 }}
-                  transition={{ delay: index * 0.04 }}
                 >
-                  <Icon size={15} strokeWidth={1.5} aria-hidden="true" />
-                  <code>{diagnostic.code}</code>
-                  <p>{diagnostic.message}</p>
-                </motion.div>
+                  <Icon
+                    className={cn(
+                      "mt-0.5 size-3.5",
+                      diagnostic.severity === "error"
+                        ? "text-destructive"
+                        : diagnostic.severity === "warning"
+                          ? "text-warning"
+                          : "text-primary",
+                    )}
+                    strokeWidth={1.5}
+                    aria-hidden="true"
+                  />
+                  <Badge
+                    variant={diagnostic.severity === "error"
+                      ? "destructive"
+                      : diagnostic.severity === "warning"
+                        ? "warning"
+                        : "outline"}
+                  >
+                    {diagnostic.code}
+                  </Badge>
+                  <p className="leading-5 text-muted-foreground">{diagnostic.message}</p>
+                </div>
               );
             })}
-          </AnimatePresence>
+          </div>
         )}
     </section>
   );
@@ -474,41 +483,45 @@ function BinaryFilePanel({
     }
   };
   return (
-    <div className="binary-panel panel">
-      <p className="eyebrow">Binary asset</p>
-      <h2>{file.relativePath}</h2>
-      <dl className="mono">
-        <dt>MIME</dt>
-        <dd>{file.mediaType}</dd>
-        <dt>Size</dt>
-        <dd>{file.size.toLocaleString()} bytes</dd>
-        <dt>SHA-256</dt>
-        <dd className="break">{file.blobSha256}</dd>
-      </dl>
-      {error !== undefined && <ErrorNotice error={error} />}
-      <div className="button-row">
-        <a
-          className="btn"
-          href={`/api/v1/blobs/${file.blobSha256}`}
-          download={file.relativePath.split("/").at(-1)}
-        >
-          <Download size={15} strokeWidth={1.5} aria-hidden="true" />
-          Download
-        </a>
-        <label className="btn">
-          <Upload size={15} strokeWidth={1.5} aria-hidden="true" />
-          Replace
-          <input
-            className="visually-hidden"
-            type="file"
-            onChange={(event) => {
-              const replacement = event.target.files?.[0];
-              if (replacement) void replace(replacement);
-            }}
-          />
-        </label>
-      </div>
-    </div>
+    <Card className="m-4 overflow-y-auto">
+      <CardHeader>
+        <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">Binary asset</p>
+        <CardTitle className="font-mono">{file.relativePath}</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 font-mono text-xs">
+          <dt className="text-muted-foreground">MIME</dt>
+          <dd>{file.mediaType}</dd>
+          <dt className="text-muted-foreground">Size</dt>
+          <dd>{file.size.toLocaleString()} bytes</dd>
+          <dt className="text-muted-foreground">SHA-256</dt>
+          <dd className="break-all">{file.blobSha256}</dd>
+        </dl>
+        {error !== undefined && <ErrorNotice error={error} />}
+        <div className="flex flex-wrap gap-2">
+          <a
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            href={`/api/v1/blobs/${file.blobSha256}`}
+            download={file.relativePath.split("/").at(-1)}
+          >
+            <Download size={15} strokeWidth={1.5} aria-hidden="true" />
+            Download
+          </a>
+          <label className={buttonVariants({ variant: "secondary", size: "sm" })}>
+            <Upload size={15} strokeWidth={1.5} aria-hidden="true" />
+            Replace
+            <input
+              className="sr-only"
+              type="file"
+              onChange={(event) => {
+                const replacement = event.target.files?.[0];
+                if (replacement) void replace(replacement);
+              }}
+            />
+          </label>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -556,38 +569,48 @@ function ConfigResourceBindings({
   const renderResources = (kind: ResourceData["resources"][number]["kind"]) => {
     const matches = resources.data?.resources.filter((resource) => resource.kind === kind) ?? [];
     return (
-      <section>
-        <h3>{kind === "instruction" ? "Instructions" : "Skills"}</h3>
-        <div className="config-resource-list">
+      <section className="flex min-h-0 flex-col gap-2">
+        <h3 className="text-xs font-semibold">{kind === "instruction" ? "Instructions" : "Skills"}</h3>
+        <div className="min-h-0 space-y-2 overflow-y-auto pr-1">
           {matches.map((resource, index) => {
             const selection = detail.selectedResources.find((candidate) =>
               candidate.resourceId === resource.id && candidate.agentId === agentId);
             const selected = selection !== undefined;
             const order = selection?.sortOrder ?? index;
             return (
-              <article className={selected ? "selected" : ""} key={resource.id}>
-                <label>
-                  <input
+              <article
+                className={cn(
+                  "rounded-md border p-2 transition-colors duration-150",
+                  selected ? "border-primary/40 bg-primary/5" : "border-border bg-card",
+                )}
+                key={resource.id}
+              >
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    aria-label={resource.name}
                     checked={selected}
+                    className="mt-0.5"
                     disabled={pendingResourceId !== undefined}
-                    onChange={(event) => void updateBinding(resource.id, event.target.checked, order)}
-                    type="checkbox"
+                    onCheckedChange={(checked) => void updateBinding(resource.id, checked === true, order)}
                   />
-                  <span>
-                    <strong>{resource.name}</strong>
-                    <small>{resource.slug} · r{resource.revisionNumber}</small>
+                  <span className="min-w-0">
+                    <strong className="block truncate text-xs font-medium">{resource.name}</strong>
+                    <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
+                      {resource.slug} · r{resource.revisionNumber}
+                    </small>
                   </span>
-                </label>
+                </div>
                 {selected && (
                   <form
+                    className="mt-2 flex items-end gap-2 border-t border-border pt-2"
                     onSubmit={(event) => {
                       event.preventDefault();
                       const data = new FormData(event.currentTarget);
                       void updateBinding(resource.id, true, Number(data.get("sortOrder")));
                     }}
                   >
-                    <Field label="Order">
-                      <input
+                    <Field className="w-24" label="Order">
+                      <Input
                         aria-label={`${resource.name} order`}
                         defaultValue={order}
                         key={`${resource.id}-${order}`}
@@ -596,37 +619,41 @@ function ConfigResourceBindings({
                         type="number"
                       />
                     </Field>
-                    <button className="btn" disabled={pendingResourceId !== undefined} type="submit">
+                    <Button size="sm" variant="outline" disabled={pendingResourceId !== undefined} type="submit">
                       Save order
-                    </button>
+                    </Button>
                   </form>
                 )}
               </article>
             );
           })}
-          {matches.length === 0 && <p className="muted">No {kind}s available.</p>}
+          {matches.length === 0 && <p className="py-2 text-xs text-muted-foreground">No {kind}s available.</p>}
         </div>
       </section>
     );
   };
 
   return (
-    <section className="config-resource-bindings panel">
-      <header>
+    <Card className="flex max-h-56 min-h-0 shrink-0 flex-col overflow-hidden">
+      <CardHeader className="flex-row items-center justify-between py-2">
         <div>
-          <p className="eyebrow">Agent resources</p>
-          <h2>Instructions &amp; skills</h2>
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            Agent resources
+          </p>
+          <CardTitle>Instructions &amp; skills</CardTitle>
         </div>
-        <span className="mono">{agentId}</span>
-      </header>
-      {resources.isPending && <Loading label="Loading resources…" />}
-      {resources.error && <ErrorNotice error={resources.error} />}
-      {error !== undefined && <ErrorNotice error={error} />}
-      <div className="config-resource-columns">
-        {renderResources("instruction")}
-        {renderResources("skill")}
-      </div>
-    </section>
+        <Badge variant="outline" className="font-mono">{agentId}</Badge>
+      </CardHeader>
+      <CardContent className="min-h-0 flex-1 overflow-hidden py-2">
+        {resources.isPending && <Loading label="Loading resources…" />}
+        {resources.error && <ErrorNotice error={resources.error} />}
+        {error !== undefined && <ErrorNotice error={error} />}
+        <div className="grid h-full min-h-0 gap-4 md:grid-cols-2">
+          {renderResources("instruction")}
+          {renderResources("skill")}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -756,16 +783,22 @@ export function ConfigEditorPage() {
       title={detail.data.configSet.name}
       actions={(
         <>
-          <button className="btn" disabled={creatingFile} onClick={() => setAdding((value) => !value)}>
+          <Button variant="outline" disabled={creatingFile} onClick={() => setAdding((value) => !value)}>
             <Plus size={15} strokeWidth={1.5} aria-hidden="true" />
             New
-          </button>
-          <label aria-disabled={creatingFile} className="btn">
+          </Button>
+          <label
+            aria-disabled={creatingFile}
+            className={cn(
+              buttonVariants({ variant: "outline" }),
+              creatingFile && "pointer-events-none opacity-50",
+            )}
+          >
             <Upload size={15} strokeWidth={1.5} aria-hidden="true" />
             Upload
             <input
               aria-label="Upload file"
-              className="visually-hidden"
+              className="sr-only"
               type="file"
               disabled={creatingFile}
               onChange={(event) => {
@@ -782,94 +815,94 @@ export function ConfigEditorPage() {
               }}
             />
           </label>
-          <button
-            className="btn btn-danger"
+          <Button
+            variant="destructive"
             disabled={!selected || creatingFile}
             onClick={() => void removeSelected()}
           >
             <Trash2 size={15} strokeWidth={1.5} aria-hidden="true" />
             Delete
-          </button>
+          </Button>
         </>
       )}
     >
-      {adding && (
-        <form className="add-file-bar" onSubmit={addFile}>
-          <div className="grow">
-            <Field label="Relative path">
-              <input disabled={creatingFile} name="relativePath" placeholder="settings.json" required />
+      <div className="flex h-[calc(100vh-10rem)] min-h-0 flex-col gap-4 overflow-hidden">
+        {adding && (
+          <form className="add-file-bar flex shrink-0 items-end gap-2" onSubmit={addFile}>
+            <Field className="min-w-0 flex-1" label="Relative path">
+              <Input disabled={creatingFile} name="relativePath" placeholder="settings.json" required />
             </Field>
-          </div>
-          <MagneticButton className="btn btn-primary" disabled={creatingFile} type="submit">
-            Create
-          </MagneticButton>
-        </form>
-      )}
-      {actionError !== undefined && <ErrorNotice error={actionError} />}
-      <ConfigResourceBindings
-        agentId={parsedAgent.data}
-        configSetId={configSetId}
-        detail={detail.data}
-      />
-      <div className="editor-shell">
-        <aside className="file-tree">
-          {files.map((file) => {
-            const FileIcon = file.utf8 ? FileCode : Database;
-            const active = file.id === selectedFileId;
-            return (
-              <button
-                className={active ? "selected" : ""}
-                key={file.id}
-                onClick={() => setSelectedFileId(file.id)}
-              >
-                {active && (
-                  <motion.span
-                    className="file-active"
-                    layoutId="file-active"
-                    style={{
-                      position: "absolute",
-                      inset: "0 auto 0 0",
-                      width: 2,
-                      background: "var(--volt)",
-                    }}
-                  />
-                )}
-                <FileIcon size={15} strokeWidth={1.5} aria-hidden="true" />
-                <span>
-                  <strong>{file.relativePath.split("/").at(-1)}</strong>
-                  <small>{file.root}/{file.relativePath}</small>
-                </span>
-              </button>
-            );
-          })}
-          {files.length === 0 && (
-            <p className="muted tree-empty">No native files yet.</p>
-          )}
-        </aside>
-        <main className="editor-main">
-          {!selected && (
-            <Empty
-              title="Select or create a file"
-              hint="Each file keeps an independent Monaco model and undo history."
-            />
-          )}
-          {selected && selected.utf8 && selected.size <= MONACO_LIMIT && (
-            <TextFileEditor
-              key={selected.id}
-              configSetId={configSetId}
-              initialRevision={detail.data.configSet.draftRevision}
-              file={selected}
-              adapter={adapter}
-            />
-          )}
-          {selected && (!selected.utf8 || selected.size > MONACO_LIMIT) && (
-            <BinaryFilePanel
-              configSetId={configSetId}
-              revision={detail.data.configSet.draftRevision}
-              file={selected}
-            />
-          )}
-        </main>
+            <Button disabled={creatingFile} type="submit">
+              Create
+            </Button>
+          </form>
+        )}
+        {actionError !== undefined && <ErrorNotice error={actionError} />}
+        <ConfigResourceBindings
+          agentId={parsedAgent.data}
+          configSetId={configSetId}
+          detail={detail.data}
+        />
+        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr] gap-4 overflow-hidden">
+          <Card className="min-h-0 overflow-y-auto p-2">
+            <div className="space-y-1">
+              {files.map((file) => {
+                const FileIcon = file.utf8 ? FileCode : Database;
+                const active = file.id === selectedFileId;
+                return (
+                  <Button
+                    className={cn(
+                      "relative h-auto w-full justify-start overflow-hidden px-2 py-2 text-left",
+                      active && "bg-accent text-accent-foreground before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary",
+                    )}
+                    key={file.id}
+                    onClick={() => setSelectedFileId(file.id)}
+                    variant="ghost"
+                  >
+                    <FileIcon className="size-4 shrink-0" strokeWidth={1.5} aria-hidden="true" />
+                    <span className="min-w-0">
+                      <strong className="block truncate text-xs font-medium">
+                        {file.relativePath.split("/").at(-1)}
+                      </strong>
+                      <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
+                        {file.root}/{file.relativePath}
+                      </small>
+                    </span>
+                  </Button>
+                );
+              })}
+              {files.length === 0 && (
+                <p className="px-2 py-6 text-center text-xs text-muted-foreground">No native files yet.</p>
+              )}
+            </div>
+          </Card>
+          <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+            {!selected && (
+              <div className="flex h-full items-center justify-center p-4">
+                <Empty
+                  title="Select or create a file"
+                  hint="Each file keeps an independent Monaco model and undo history."
+                />
+              </div>
+            )}
+            {selected && selected.utf8 && selected.size <= MONACO_LIMIT && (
+              <TextFileEditor
+                key={selected.id}
+                configSetId={configSetId}
+                initialRevision={detail.data.configSet.draftRevision}
+                file={selected}
+                adapter={adapter}
+              />
+            )}
+            {selected && (!selected.utf8 || selected.size > MONACO_LIMIT) && (
+              <BinaryFilePanel
+                configSetId={configSetId}
+                revision={detail.data.configSet.draftRevision}
+                file={selected}
+              />
+            )}
+          </Card>
+        </div>
       </div>
     </Page>
   );

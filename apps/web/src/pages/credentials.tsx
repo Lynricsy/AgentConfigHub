@@ -3,17 +3,33 @@ import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { Copy, Eye, RotateCw } from "lucide-react";
+import { toast } from "sonner";
 
 import { AgentId } from "@agent-config-hub/protocol";
 
 import { ConfigSetDetail, ConfigSetList, CredentialList, api, mutate } from "../api.js";
 import { ErrorNotice } from "../auth.js";
-import { Chip, Field, Modal } from "../ui/bits.js";
-import { MagneticButton } from "../ui/magnetic.js";
+import { Badge } from "../ui/badge.js";
+import { Button } from "../ui/button.js";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../ui/card.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../ui/dialog.js";
+import { Field } from "../ui/field.js";
+import { Input } from "../ui/input.js";
 import { Page } from "../ui/page.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select.js";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../ui/table.js";
 
 const CredentialResult = CredentialList.element;
 const RevisionResult = z.object({ revision: z.number().int() });
+const NONE = "__none__";
+const INHERIT = "__inherit__";
 
 export function CredentialsPage() {
   const queryClient = useQueryClient();
@@ -22,6 +38,7 @@ export function CredentialsPage() {
   const [revealingId, setRevealingId] = useState<string>();
   const [revealedValue, setRevealedValue] = useState<string>();
   const [configSetId, setConfigSetId] = useState("");
+  const [addSlotCredentialId, setAddSlotCredentialId] = useState(NONE);
   const [pendingAction, setPendingAction] = useState<"create" | "rotate" | "reveal">();
   const [actionError, setActionError] = useState<{
     action: "create" | "rotate" | "reveal";
@@ -62,12 +79,15 @@ export function CredentialsPage() {
       if (action === "create") {
         await mutate("/api/v1/credentials", CredentialResult, input);
         setCreating(false);
+        toast.success("Credential created");
       } else if (action === "rotate" && id) {
         await mutate(`/api/v1/credentials/${id}/rotate`, CredentialResult, input);
         setRotatingId(undefined);
+        toast.success("Credential updated");
       } else if (action === "reveal" && id) {
         const result = await mutate(`/api/v1/credentials/${id}/reveal`, z.object({ value: z.string() }), input);
         setRevealedValue(result.data.value);
+        toast.success("Credential revealed");
       }
       if (action !== "reveal") await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["credentials"] }),
@@ -75,6 +95,11 @@ export function CredentialsPage() {
       ]);
     } catch (error) {
       setActionError({ action, id, error });
+      toast.error(action === "create"
+        ? "Could not create credential"
+        : action === "rotate"
+          ? "Could not update credential"
+          : "Could not reveal credential");
     } finally {
       setPendingAction(undefined);
     }
@@ -83,16 +108,21 @@ export function CredentialsPage() {
   const bind = async (slotName: string, credentialId: string | null, agentId?: string) => {
     if (!config.data) return;
     const suffix = agentId ? `/agents/${agentId}` : "";
-    await mutate(
-      `/api/v1/config-sets/${config.data.configSet.id}/secret-slots/${encodeURIComponent(slotName)}${suffix}`,
-      RevisionResult,
-      { credentialId },
-      { method: "PUT", revision: config.data.configSet.draftRevision },
-    );
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["config-set", config.data.configSet.id] }),
-      queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
-    ]);
+    try {
+      await mutate(
+        `/api/v1/config-sets/${config.data.configSet.id}/secret-slots/${encodeURIComponent(slotName)}${suffix}`,
+        RevisionResult,
+        { credentialId },
+        { method: "PUT", revision: config.data.configSet.draftRevision },
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["config-set", config.data.configSet.id] }),
+        queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
+      ]);
+      toast.success("Credential binding updated");
+    } catch {
+      toast.error("Could not update credential binding");
+    }
   };
   const closeReveal = () => {
     setRevealingId(undefined);
@@ -105,63 +135,56 @@ export function CredentialsPage() {
       title="Credentials"
       lede="Values remain masked; reveal requires password re-authentication."
       actions={
-        <MagneticButton
-          className="btn btn-primary"
-          onClick={() => setCreating((value) => !value)}
-          type="button"
-        >
+        <Button onClick={() => setCreating((value) => !value)} type="button">
           {creating ? "Cancel" : "New credential"}
-        </MagneticButton>
+        </Button>
       }
     >
       {creating && (
-        <form
-          className="section-panel stack"
-          onSubmit={(event) => void submitSensitive(event, "create")}
-        >
-          <Field label="Label">
-            <input name="label" required />
-          </Field>
-          <Field label="Provider">
-            <input name="provider" required />
-          </Field>
-          <Field label="Secret value">
-            <input name="value" type="password" required />
-          </Field>
-          <MagneticButton
-            className="btn btn-primary"
-            disabled={pendingAction === "create"}
-            type="submit"
+        <Card className="mb-4">
+          <form
+            className="grid gap-4 p-4 md:grid-cols-3"
+            onSubmit={(event) => void submitSensitive(event, "create")}
           >
-            Encrypt & save
-          </MagneticButton>
-          {actionError?.action === "create" && (
-            <ErrorNotice error={actionError.error} />
-          )}
-        </form>
+            <Field label="Label">
+              <Input name="label" required />
+            </Field>
+            <Field label="Provider">
+              <Input name="provider" required />
+            </Field>
+            <Field label="Secret value">
+              <Input name="value" type="password" required />
+            </Field>
+            <div className="flex items-center gap-3 md:col-span-3">
+              <Button disabled={pendingAction === "create"} type="submit">
+                Encrypt & save
+              </Button>
+              {actionError?.action === "create" && <ErrorNotice error={actionError.error} />}
+            </div>
+          </form>
+        </Card>
       )}
 
-      <div className="credential-grid">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {credentials.data?.map((credential) => (
-          <article className="credential-card" key={credential.id}>
-            <div className="card-top">
-              <Chip>{credential.provider}</Chip>
-              <span className="mono">r{credential.revision}</span>
-            </div>
-            <h2 className="display-sm">{credential.label}</h2>
-            <code>{credential.maskedValue}</code>
-            <p className="muted">{credential.referenceCount} references</p>
-            <div className="button-row">
-              <button
-                className="btn"
-                onClick={() => setRotatingId(credential.id)}
-                type="button"
-              >
+          <Card key={credential.id}>
+            <CardHeader className="flex-row items-center justify-between">
+              <Badge variant="outline">{credential.provider}</Badge>
+              <span className="font-mono text-xs text-muted-foreground">r{credential.revision}</span>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
+              <CardTitle>{credential.label}</CardTitle>
+              <code className="font-mono text-xs text-muted-foreground">{credential.maskedValue}</code>
+              <p className="text-xs text-muted-foreground">{credential.referenceCount} references</p>
+            </CardContent>
+            <CardFooter>
+              <Button variant="outline" size="sm" onClick={() => setRotatingId(credential.id)} type="button">
                 <RotateCw size={15} strokeWidth={1.5} aria-hidden="true" />
                 Rotate
-              </button>
-              <button
-                className="btn"
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setRevealingId(credential.id);
                   setRevealedValue(undefined);
@@ -170,167 +193,212 @@ export function CredentialsPage() {
               >
                 <Eye size={15} strokeWidth={1.5} aria-hidden="true" />
                 Reveal
-              </button>
-            </div>
+              </Button>
+            </CardFooter>
             {rotatingId === credential.id && (
               <form
-                className="stack compact-form"
+                className="flex flex-col gap-3 border-t border-border p-4"
                 onSubmit={(event) => void submitSensitive(event, "rotate", credential.id)}
               >
                 <Field label="New value">
-                  <input name="value" type="password" required autoFocus />
+                  <Input name="value" type="password" required autoFocus />
                 </Field>
                 {actionError?.action === "rotate"
                   && actionError.id === credential.id
                   && <ErrorNotice error={actionError.error} />}
-                <button
-                  className="btn"
+                <Button
+                  variant="outline"
                   disabled={pendingAction === "rotate"}
                   type="submit"
                 >
                   Save revision
-                </button>
+                </Button>
               </form>
             )}
-          </article>
+          </Card>
         ))}
       </div>
 
-      <section className="slot-section">
-        <header>
-          <div>
-            <p className="eyebrow">Effective bindings</p>
-            <h2 className="display-sm">Secret slot matrix</h2>
+      <Card className="mt-6">
+        <CardHeader className="gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Effective bindings</p>
+            <CardTitle>Secret slot matrix</CardTitle>
           </div>
-          <Field label="Configuration group">
-            <select
-              value={configSetId}
-              onChange={(event) => setConfigSetId(event.target.value)}
+          <Field label="Configuration group" htmlFor="credentials-config-set" className="w-full md:w-72">
+            <Select
+              value={configSetId || NONE}
+              onValueChange={(value) => setConfigSetId(value === NONE ? "" : value)}
             >
-              <option value="">Choose…</option>
-              {configSets.data?.map((set) => (
-                <option key={set.id} value={set.id}>{set.name}</option>
-              ))}
-            </select>
+              <SelectTrigger id="credentials-config-set" aria-label="Configuration group">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NONE}>Choose…</SelectItem>
+                {configSets.data?.map((set) => (
+                  <SelectItem key={set.id} value={set.id}>{set.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
-        </header>
+        </CardHeader>
         {config.data && (
-          <>
+          <CardContent className="p-0">
             <form
-              className="add-slot"
+              className="grid gap-2 border-b border-border p-4 sm:grid-cols-[minmax(12rem,1fr)_minmax(12rem,1fr)_auto]"
               onSubmit={(event) => {
                 event.preventDefault();
                 const data = new FormData(event.currentTarget);
-                void bind(String(data.get("slotName")), String(data.get("credentialId")) || null);
+                void bind(
+                  String(data.get("slotName")),
+                  addSlotCredentialId === NONE ? null : addSlotCredentialId,
+                );
               }}
             >
-              <input
+              <Input
                 name="slotName"
                 pattern="[A-Z][A-Z0-9_]*"
                 placeholder="MODEL_API_KEY"
                 required
               />
-              <select name="credentialId">
-                <option value="">Unbound</option>
-                {credentials.data?.map((credential) => (
-                  <option value={credential.id} key={credential.id}>
-                    {credential.label}
-                  </option>
-                ))}
-              </select>
-              <button className="btn" type="submit">Add slot</button>
+              <Select value={addSlotCredentialId} onValueChange={setAddSlotCredentialId}>
+                <SelectTrigger aria-label="Credential">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>Unbound</SelectItem>
+                  {credentials.data?.map((credential) => (
+                    <SelectItem value={credential.id} key={credential.id}>
+                      {credential.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" type="submit">Add slot</Button>
             </form>
-            <div className="slot-matrix">
-              <div className="slot-row slot-head">
-                <span>Slot</span>
-                <span>Default</span>
-                {AgentId.options.map((agent) => <span key={agent}>{agent}</span>)}
-              </div>
-              {config.data.secretSlots.slots.map((slot) => (
-                <div className="slot-row" key={slot.id}>
-                  <strong>{slot.name}</strong>
-                  <select
-                    value={slot.defaultCredentialId ?? ""}
-                    onChange={(event) => void bind(slot.name, event.target.value || null)}
-                  >
-                    <option value="">Unbound</option>
-                    {credentials.data?.map((credential) => (
-                      <option key={credential.id} value={credential.id}>
-                        {credential.label}
-                      </option>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Slot</TableHead>
+                    <TableHead>Default</TableHead>
+                    {AgentId.options.map((agent) => (
+                      <TableHead className="font-mono normal-case" key={agent}>{agent}</TableHead>
                     ))}
-                  </select>
-                  {AgentId.options.map((agent) => {
-                    const override = config.data.secretSlots.overrides.find(
-                      (item) => item.secretSlotId === slot.id && item.agentId === agent,
-                    );
-                    return (
-                      <select
-                        className={override ? "override" : "inherited"}
-                        key={agent}
-                        value={override?.credentialId ?? ""}
-                        onChange={(event) => void bind(
-                          slot.name,
-                          event.target.value || null,
-                          agent,
-                        )}
-                      >
-                        <option value="">Inherit</option>
-                        {credentials.data?.map((credential) => (
-                          <option key={credential.id} value={credential.id}>
-                            {credential.label}
-                          </option>
-                        ))}
-                      </select>
-                    );
-                  })}
-                </div>
-              ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {config.data.secretSlots.slots.map((slot) => (
+                    <TableRow key={slot.id}>
+                      <TableCell className="min-w-44 font-mono text-xs font-semibold">{slot.name}</TableCell>
+                      <TableCell className="min-w-48">
+                        <Select
+                          value={slot.defaultCredentialId ?? NONE}
+                          onValueChange={(value) => void bind(slot.name, value === NONE ? null : value)}
+                        >
+                          <SelectTrigger aria-label={`${slot.name} default`}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={NONE}>Unbound</SelectItem>
+                            {credentials.data?.map((credential) => (
+                              <SelectItem key={credential.id} value={credential.id}>
+                                {credential.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      {AgentId.options.map((agent) => {
+                        const override = config.data.secretSlots.overrides.find(
+                          (item) => item.secretSlotId === slot.id && item.agentId === agent,
+                        );
+                        return (
+                          <TableCell className="min-w-48" key={agent}>
+                            <Select
+                              value={override?.credentialId ?? INHERIT}
+                              onValueChange={(value) => void bind(
+                                slot.name,
+                                value === INHERIT ? null : value,
+                                agent,
+                              )}
+                            >
+                              <SelectTrigger
+                                aria-label={`${slot.name} for ${agent}`}
+                                className={override
+                                  ? "border-primary/50 text-foreground"
+                                  : "text-muted-foreground"}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={INHERIT}>Inherit</SelectItem>
+                                {credentials.data?.map((credential) => (
+                                  <SelectItem key={credential.id} value={credential.id}>
+                                    {credential.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-          </>
+          </CardContent>
         )}
-      </section>
+      </Card>
 
-      {revealingId && (
-        <Modal
-          title="Reveal credential"
-          eyebrow="Sensitive action"
-          onClose={closeReveal}
-        >
-          {revealedValue === undefined ? (
+      <Dialog
+        open={revealingId !== undefined}
+        onOpenChange={(open) => {
+          if (!open) closeReveal();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reveal credential</DialogTitle>
+            <DialogDescription>Sensitive action</DialogDescription>
+          </DialogHeader>
+          {revealingId && revealedValue === undefined ? (
             <form
-              className="stack"
+              className="flex flex-col gap-4"
               onSubmit={(event) => void submitSensitive(event, "reveal", revealingId)}
             >
               <Field label="Administrator password">
-                <input name="password" type="password" required autoFocus />
+                <Input name="password" type="password" required autoFocus />
               </Field>
               {actionError?.action === "reveal" && actionError.id === revealingId && (
                 <ErrorNotice error={actionError.error} />
               )}
-              <MagneticButton
-                className="btn btn-primary"
-                disabled={pendingAction === "reveal"}
-                type="submit"
-              >
-                Reveal once
-              </MagneticButton>
+              <DialogFooter>
+                <Button disabled={pendingAction === "reveal"} type="submit">
+                  Reveal once
+                </Button>
+              </DialogFooter>
             </form>
-          ) : (
-            <div className="revealed-secret">
-              <code>{revealedValue}</code>
-              <button
-                className="btn"
-                onClick={() => void navigator.clipboard.writeText(revealedValue)}
-                type="button"
-              >
-                <Copy size={15} strokeWidth={1.5} aria-hidden="true" />
-                Copy
-              </button>
+          ) : revealedValue !== undefined ? (
+            <div className="flex flex-col gap-4">
+              <code className="overflow-x-auto rounded-md border border-border bg-muted p-3 font-mono text-sm">
+                {revealedValue}
+              </code>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(revealedValue)}
+                  type="button"
+                >
+                  <Copy size={15} strokeWidth={1.5} aria-hidden="true" />
+                  Copy
+                </Button>
+              </DialogFooter>
             </div>
-          )}
-        </Modal>
-      )}
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </Page>
   );
 }

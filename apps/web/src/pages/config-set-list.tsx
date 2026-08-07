@@ -2,17 +2,30 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
 import { useState } from "react";
 import { CircleCheck, GitBranch } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import { Link } from "react-router-dom";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { AgentId } from "@agent-config-hub/protocol";
 
 import { ApiClientError, ConfigSetList, api, mutate, type ConfigSet } from "../api.js";
 import { ErrorNotice } from "../auth.js";
-import { Chip, Empty, Field, Loading } from "../ui/bits.js";
-import { MagneticButton } from "../ui/magnetic.js";
+import { Badge } from "../ui/badge.js";
+import { Button } from "../ui/button.js";
+import { Card } from "../ui/card.js";
+import { Empty } from "../ui/empty.js";
+import { Field } from "../ui/field.js";
+import { Input } from "../ui/input.js";
 import { Page } from "../ui/page.js";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select.js";
+import { Loading } from "../ui/spinner.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs.js";
 
 const NEW_GROUP = "__new__";
 
@@ -21,8 +34,6 @@ function availableAgents(configSet: ConfigSet | undefined) {
     ? AgentId.options.filter((agentId) => !configSet.enabledAgents.includes(agentId))
     : AgentId.options;
 }
-
-
 
 export function ConfigSetListPage() {
   const [creating, setCreating] = useState(false);
@@ -64,9 +75,11 @@ export function ConfigSetListPage() {
     },
     onSuccess: async () => {
       setCreating(false);
+      toast.success("Configuration created.");
       await queryClient.invalidateQueries({ queryKey: ["config-sets"] });
     },
     onError: async (error) => {
+      toast.error(error instanceof Error ? error.message : "Could not create configuration.");
       if (error instanceof ApiClientError && error.code === "REVISION_CONFLICT") {
         await queryClient.invalidateQueries({ queryKey: ["config-sets"] });
       }
@@ -105,33 +118,40 @@ export function ConfigSetListPage() {
       slug: String(data.get("slug")),
     });
   };
-  const card = (configSet: ConfigSet, cardAgentId: (typeof AgentId.options)[number], index: number) => {
+  const card = (configSet: ConfigSet, cardAgentId: (typeof AgentId.options)[number]) => {
     const dirty = configSet.currentReleaseRevision !== configSet.draftRevision;
     return (
-      <motion.div
+      <Link
+        className="rounded-lg transition-colors duration-150 hover:border-ring/50"
         key={`${configSet.id}-${cardAgentId}`}
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        whileHover={{ y: -4 }}
-        transition={{ type: "spring", delay: index * 0.05 }}
+        to={`/config-sets/${configSet.id}/configs/${cardAgentId}`}
       >
-        <Link className="card" to={`/config-sets/${configSet.id}/configs/${cardAgentId}`}>
-          <Chip tone={dirty ? "warn" : undefined} icon={dirty ? GitBranch : CircleCheck}>
-            {dirty ? "Draft changed" : "Published"}
-          </Chip>
-          <p className="mono">{configSet.slug}</p>
-          <h3 className="display-sm">{configSet.name}</h3>
-          <p>Agent · <span className="mono">{cardAgentId}</span></p>
-          <footer>
-            <span className="mono">Draft r{configSet.draftRevision}</span>
-            <span className="mono">
+        <Card className="h-full transition-colors duration-150 hover:border-ring/50">
+          <div className="flex flex-col gap-3 p-4">
+            <Badge variant={dirty ? "warning" : "success"}>
+              {dirty
+                ? <GitBranch aria-hidden="true" />
+                : <CircleCheck aria-hidden="true" />}
+              {dirty ? "Draft changed" : "Published"}
+            </Badge>
+            <div className="space-y-1">
+              <p className="font-mono text-xs text-muted-foreground">{configSet.slug}</p>
+              <h3 className="text-sm font-semibold">{configSet.name}</h3>
+              <p className="text-sm text-muted-foreground">
+                Agent · <span className="font-mono text-foreground">{cardAgentId}</span>
+              </p>
+            </div>
+          </div>
+          <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-3 text-xs text-muted-foreground">
+            <span className="font-mono">Draft r{configSet.draftRevision}</span>
+            <span className="font-mono">
               {configSet.currentReleaseNumber
                 ? `Release ${configSet.currentReleaseNumber}`
                 : "Never released"}
             </span>
           </footer>
-        </Link>
-      </motion.div>
+        </Card>
+      </Link>
     );
   };
   const configCount = query.data?.reduce(
@@ -144,50 +164,51 @@ export function ConfigSetListPage() {
       title="Configuration sets"
       lede="Agent configurations organized within shared release groups."
       actions={
-        <MagneticButton
-          className="btn btn-primary"
-          disabled={query.isPending}
-          onClick={toggleCreating}
-        >
+        <Button disabled={query.isPending} onClick={toggleCreating}>
           {creating ? "Cancel" : "New config"}
-        </MagneticButton>
+        </Button>
       }
     >
-      <AnimatePresence>
+      <div className="flex flex-col gap-6">
         {creating && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            style={{ overflow: "hidden" }}
-          >
-            <form className="panel config-create-form" onSubmit={submit}>
-              <Field label="Configuration group">
-                <select
+          <Card>
+            <form className="grid gap-4 p-4 sm:grid-cols-2" onSubmit={submit}>
+              <Field
+                className="sm:col-span-2"
+                htmlFor="config-create-group"
+                label="Configuration group"
+              >
+                <Select
                   value={groupId}
-                  onChange={(event) => {
-                    const nextGroupId = event.target.value;
+                  onValueChange={(nextGroupId) => {
                     const group = query.data?.find((configSet) => configSet.id === nextGroupId);
                     setGroupId(nextGroupId);
                     setAgentId(availableAgents(group)[0] ?? "claude-code");
                   }}
                 >
-                  {query.data?.map((configSet) => (
-                    <option key={configSet.id} value={configSet.id}>
-                      {configSet.name} · {configSet.slug}
-                    </option>
-                  ))}
-                  <option value={NEW_GROUP}>New configuration group…</option>
-                </select>
+                  <SelectTrigger
+                    aria-label="Configuration group"
+                    id="config-create-group"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {query.data?.map((configSet) => (
+                      <SelectItem key={configSet.id} value={configSet.id}>
+                        {configSet.name} · {configSet.slug}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={NEW_GROUP}>New configuration group…</SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
               {groupId === NEW_GROUP && (
                 <>
                   <Field label="Group name">
-                    <input name="name" placeholder="Personal workstation" required />
+                    <Input name="name" placeholder="Personal workstation" required />
                   </Field>
                   <Field label="Group slug">
-                    <input
+                    <Input
                       name="slug"
                       pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
                       placeholder="personal"
@@ -196,87 +217,111 @@ export function ConfigSetListPage() {
                   </Field>
                 </>
               )}
-              <Field label="Agent">
-                <select
+              <Field
+                className="sm:col-span-2"
+                htmlFor="config-create-agent"
+                label="Agent"
+              >
+                <Select
                   value={agentId}
                   disabled={selectableAgents.length === 0}
-                  onChange={(event) => setAgentId(AgentId.parse(event.target.value))}
+                  onValueChange={(value) => setAgentId(AgentId.parse(value))}
                 >
-                  {selectableAgents.map((option) => <option key={option}>{option}</option>)}
-                </select>
+                  <SelectTrigger aria-label="Agent" id="config-create-agent">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {selectableAgents.map((option) => (
+                      <SelectItem key={option} value={option}>{option}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </Field>
               {selectableAgents.length === 0 && (
-                <p className="muted">This configuration group already contains every Agent.</p>
+                <p className="text-sm text-muted-foreground sm:col-span-2">
+                  This configuration group already contains every Agent.
+                </p>
               )}
-              {create.error && <ErrorNotice error={create.error} />}
-              <MagneticButton
-                className="btn btn-primary"
-                disabled={create.isPending || selectableAgents.length === 0}
-                type="submit"
-              >
-                Create config
-              </MagneticButton>
+              {create.error && (
+                <div className="sm:col-span-2">
+                  <ErrorNotice error={create.error} />
+                </div>
+              )}
+              <div className="sm:col-span-2">
+                <Button
+                  disabled={create.isPending || selectableAgents.length === 0}
+                  type="submit"
+                >
+                  Create config
+                </Button>
+              </div>
             </form>
-          </motion.div>
+          </Card>
         )}
-      </AnimatePresence>
 
-      {query.isPending && <Loading label="Loading configurations…" />}
-      {query.error && <ErrorNotice error={query.error} />}
+        {query.isPending && <Loading label="Loading configurations…" />}
+        {query.error && <ErrorNotice error={query.error} />}
 
-      {configCount > 0 && (
-        <div className="config-view-toggle" aria-label="Organize configurations">
-          <button className="btn" aria-pressed={view === "group"} onClick={() => setView("group")}>
-            By group
-          </button>
-          <button className="btn" aria-pressed={view === "agent"} onClick={() => setView("agent")}>
-            By Agent
-          </button>
-        </div>
-      )}
+        {configCount > 0 && (
+          <Tabs
+            aria-label="Organize configurations"
+            value={view}
+            onValueChange={(value) => setView(value as "group" | "agent")}
+          >
+            <TabsList>
+              <TabsTrigger value="group">By group</TabsTrigger>
+              <TabsTrigger value="agent">By Agent</TabsTrigger>
+            </TabsList>
+            <TabsContent className="mt-5 space-y-6" value="group">
+              {query.data?.map((configSet) => {
+                const groupAgents = AgentId.options.filter((option) => configSet.enabledAgents.includes(option));
+                if (groupAgents.length === 0) return null;
+                return (
+                  <section
+                    aria-labelledby={`config-group-${configSet.id}`}
+                    className="space-y-3"
+                    key={configSet.id}
+                  >
+                    <h2 className="text-sm font-semibold" id={`config-group-${configSet.id}`}>
+                      {configSet.name}
+                    </h2>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {groupAgents.map((option) => card(configSet, option))}
+                    </div>
+                  </section>
+                );
+              })}
+            </TabsContent>
+            <TabsContent className="mt-5 space-y-6" value="agent">
+              {AgentId.options.map((option) => {
+                const groups = query.data?.filter((configSet) => configSet.enabledAgents.includes(option)) ?? [];
+                if (groups.length === 0) return null;
+                return (
+                  <section
+                    aria-labelledby={`config-agent-${option}`}
+                    className="space-y-3"
+                    key={option}
+                  >
+                    <h2 className="font-mono text-sm font-semibold" id={`config-agent-${option}`}>
+                      {option}
+                    </h2>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {groups.map((configSet) => card(configSet, option))}
+                    </div>
+                  </section>
+                );
+              })}
+            </TabsContent>
+          </Tabs>
+        )}
 
-      <div className="config-sections">
-        {view === "group"
-          ? query.data?.map((configSet) => {
-              const groupAgents = AgentId.options.filter((option) => configSet.enabledAgents.includes(option));
-              if (groupAgents.length === 0) return null;
-              return (
-                <section
-                  aria-labelledby={`config-group-${configSet.id}`}
-                  className="config-section"
-                  key={configSet.id}
-                >
-                  <h2 id={`config-group-${configSet.id}`}>{configSet.name}</h2>
-                  <div className="card-grid">
-                    {groupAgents.map((option, index) => card(configSet, option, index))}
-                  </div>
-                </section>
-              );
-            })
-          : AgentId.options.map((option) => {
-              const groups = query.data?.filter((configSet) => configSet.enabledAgents.includes(option)) ?? [];
-              if (groups.length === 0) return null;
-              return (
-                <section
-                  aria-labelledby={`config-agent-${option}`}
-                  className="config-section"
-                  key={option}
-                >
-                  <h2 id={`config-agent-${option}`}>{option}</h2>
-                  <div className="card-grid">
-                    {groups.map((configSet, index) => card(configSet, option, index))}
-                  </div>
-                </section>
-              );
-            })}
+        {configCount === 0 && !query.isPending && (
+          <Empty
+            title="No configurations"
+            hint="Create an Agent configuration to begin managing native files."
+          />
+        )}
       </div>
-
-      {configCount === 0 && !query.isPending && (
-        <Empty
-          title="No configurations"
-          hint="Create an Agent configuration to begin managing native files."
-        />
-      )}
     </Page>
   );
 }

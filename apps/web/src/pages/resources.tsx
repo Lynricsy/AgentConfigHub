@@ -1,8 +1,9 @@
-import Editor, { type Monaco } from "@monaco-editor/react";
+import Editor from "@monaco-editor/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileCode, FileText, LoaderCircle, Package, Plus, Save, Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import {
@@ -15,9 +16,16 @@ import {
   type ResourceList as ResourceData,
 } from "../api.js";
 import { ErrorNotice } from "../auth.js";
-import { Chip, Empty, Field, Loading } from "../ui/bits.js";
-import { MagneticButton } from "../ui/magnetic.js";
+import { defineMonacoThemes, monacoThemeFor } from "../monaco-theme.js";
+import { useTheme } from "../theme.js";
+import { Badge } from "../ui/badge.js";
+import { Button } from "../ui/button.js";
+import { Card, CardContent, CardHeader } from "../ui/card.js";
+import { Empty } from "../ui/empty.js";
+import { Field } from "../ui/field.js";
+import { Input } from "../ui/input.js";
 import { Page } from "../ui/page.js";
+import { Loading } from "../ui/spinner.js";
 
 const ResourceCreated = z.object({ id: z.string(), revisionId: z.string() });
 const ResourceRevised = z.object({ revisionId: z.string() });
@@ -61,28 +69,6 @@ function isInlineEditable(file: ResourceFile): boolean {
     languageFor(file.relativePath) !== "plaintext";
 }
 
-function defineResourceTheme(monaco: Monaco): void {
-  monaco.editor.defineTheme("ach-void", {
-    base: "vs-dark",
-    inherit: true,
-    rules: [
-      { token: "comment", foreground: "3d4d47" },
-      { token: "string", foreground: "b8f35b" },
-      { token: "number", foreground: "ffc76b" },
-      { token: "keyword", foreground: "3ddcff" },
-      { token: "type", foreground: "3ddcff" },
-    ],
-    colors: {
-      "editor.background": "#080b0e",
-      "editor.foreground": "#e9efe9",
-      "editorLineNumber.foreground": "#2b3a36",
-      "editorLineNumber.activeForeground": "#b8f35b",
-      "editor.lineHighlightBackground": "#0d1114",
-      "editorCursor.foreground": "#b8f35b",
-      "editor.selectionBackground": "#1d2f1c",
-    },
-  });
-}
 
 function ResourceFileEditor({
   resource,
@@ -94,6 +80,7 @@ function ResourceFileEditor({
   files: ResourceFile[];
 }) {
   const queryClient = useQueryClient();
+  const { resolved } = useTheme();
   const source = useQuery({
     queryKey: ["blob-text", file.blobSha256],
     queryFn: async () => await (await downloadBlob(file.blobSha256)).text(),
@@ -152,6 +139,7 @@ function ResourceFileEditor({
         queryClient.invalidateQueries({ queryKey: ["config-set"] }),
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
       ]);
+      toast.success("Revision saved");
     } catch (cause) {
       if (cause instanceof ApiClientError && cause.code === "REVISION_CONFLICT") {
         try {
@@ -164,12 +152,15 @@ function ResourceFileEditor({
             ? ""
             : await (await downloadBlob(latestFile.blobSha256)).text();
           setConflict({ resource: latestResource, files: latestFiles, serverText, latest });
+          toast.error("Revision changed on the server");
           setError(undefined);
         } catch (refreshError) {
           setError(refreshError);
+          toast.error("Could not save revision");
         }
       } else {
         setError(cause);
+        toast.error("Could not save revision");
       }
     } finally {
       setSaving(false);
@@ -188,73 +179,94 @@ function ResourceFileEditor({
   if (source.error) return <ErrorNotice error={source.error} />;
 
   return (
-    <div className="resource-editor">
-      <div className="editor-toolbar">
-        {saving ? <LoaderCircle className="spin" size={15} aria-hidden="true" /> : <FileCode size={15} aria-hidden="true" />}
-        <span className="mono">{file.relativePath}</span>
-        <span className={text === savedText ? "save-state saved" : "save-state unsaved"}>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        {saving
+          ? <LoaderCircle className="size-4 animate-spin text-muted-foreground" aria-hidden="true" />
+          : <FileCode className="size-4 text-muted-foreground" aria-hidden="true" />}
+        <span className="min-w-0 flex-1 truncate font-mono text-xs">{file.relativePath}</span>
+        <span
+          className={
+            text === savedText
+              ? "save-state rounded-full bg-success/10 px-2 py-0.5 text-[0.6875rem] font-medium text-success"
+              : "save-state rounded-full bg-warning/10 px-2 py-0.5 text-[0.6875rem] font-medium text-warning"
+          }
+        >
           {text === savedText ? "saved" : "edited"}
         </span>
-        <button className="btn" disabled={saving || text === savedText} onClick={() => void save()}>
-          <Save size={15} aria-hidden="true" />
+        <Button
+          disabled={saving || text === savedText}
+          onClick={() => void save()}
+          size="sm"
+          variant="outline"
+        >
+          <Save aria-hidden="true" />
           Save revision
-        </button>
+        </Button>
       </div>
-      {error !== undefined && <ErrorNotice error={error} />}
+      {error !== undefined && <div className="shrink-0 p-3"><ErrorNotice error={error} /></div>}
       {conflict !== undefined && (
-        <section className="conflict-panel" role="alert">
-          <h3>Resource revision changed</h3>
-          <p>Another editor saved this resource. Your draft is preserved; compare before choosing a version.</p>
-          <div className="conflict-columns">
-            <div>
-              <strong>Your draft</strong>
-              <pre>{text}</pre>
+        <section
+          className="conflict-panel m-3 max-h-80 shrink-0 overflow-y-auto rounded-md border border-warning/40 bg-warning/5 p-4"
+          role="alert"
+        >
+          <h3 className="text-sm font-semibold">Resource revision changed</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Another editor saved this resource. Your draft is preserved; compare before choosing a version.
+          </p>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="min-w-0">
+              <strong className="text-xs font-medium">Your draft</strong>
+              <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-card p-3 font-mono text-xs">{text}</pre>
             </div>
-            <div>
-              <strong>Latest server revision</strong>
-              <pre>{conflict.serverText}</pre>
+            <div className="min-w-0">
+              <strong className="text-xs font-medium">Latest server revision</strong>
+              <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
+                {conflict.serverText}
+              </pre>
             </div>
           </div>
-          <div className="button-row">
-            <button
-              className="btn btn-primary"
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
               disabled={saving}
               onClick={() => void save(conflict.resource, conflict.files)}
-              type="button"
+              size="sm"
             >
               Keep mine as new revision
-            </button>
-            <button
-              className="btn"
+            </Button>
+            <Button
               disabled={saving}
               onClick={() => {
                 queryClient.setQueryData(["resources"], conflict.latest);
                 setConflict(undefined);
               }}
-              type="button"
+              size="sm"
+              variant="outline"
             >
               Reload server version
-            </button>
+            </Button>
           </div>
         </section>
       )}
-      <Editor
-        beforeMount={defineResourceTheme}
-        height="min(62vh, 46rem)"
-        language={languageFor(file.relativePath)}
-        onChange={(value) => setText(value ?? "")}
-        options={{
-          minimap: { enabled: false },
-          fontFamily: "'JetBrains Mono Variable', monospace",
-          fontSize: 13,
-          padding: { top: 14 },
-          scrollBeyondLastLine: false,
-          wordWrap: file.relativePath.endsWith(".md") ? "on" : "off",
-        }}
-        path={`resource://${resource.id}/${resource.revisionId}/${file.relativePath}`}
-        theme="ach-void"
-        value={text}
-      />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <Editor
+          beforeMount={defineMonacoThemes}
+          height="100%"
+          language={languageFor(file.relativePath)}
+          onChange={(value) => setText(value ?? "")}
+          options={{
+            minimap: { enabled: false },
+            fontFamily: "'JetBrains Mono Variable', monospace",
+            fontSize: 13,
+            padding: { top: 14 },
+            scrollBeyondLastLine: false,
+            wordWrap: file.relativePath.endsWith(".md") ? "on" : "off",
+          }}
+          path={`resource://${resource.id}/${resource.revisionId}/${file.relativePath}`}
+          theme={monacoThemeFor(resolved)}
+          value={text}
+        />
+      </div>
     </div>
   );
 }
@@ -433,150 +445,213 @@ export function ResourcesPage() {
       lede="Edit reusable instructions and skill files directly. Bind them from each Agent configuration."
       actions={(
         <>
-          <MagneticButton
-            className="btn"
+          <Button
             onClick={() => setCreatingKind((kind) => kind === "instruction" ? undefined : "instruction")}
             type="button"
+            variant="outline"
           >
-            <FileText size={15} aria-hidden="true" />
+            <FileText aria-hidden="true" />
             New instruction
-          </MagneticButton>
-          <MagneticButton
-            className="btn btn-primary"
+          </Button>
+          <Button
             onClick={() => setCreatingKind((kind) => kind === "skill" ? undefined : "skill")}
             type="button"
           >
-            <Package size={15} aria-hidden="true" />
+            <Package aria-hidden="true" />
             New skill
-          </MagneticButton>
+          </Button>
         </>
       )}
     >
-      {creatingKind && (
-        <form className="panel resource-form" onSubmit={(event) => void createResource(event)}>
-          <p className="eyebrow">New {creatingKind}</p>
-          <div className="form-row">
-            <Field label="Name">
-              <input name="name" required />
-            </Field>
-            <Field label="Slug">
-              <input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required />
-            </Field>
-          </div>
-          {actionError !== undefined && <ErrorNotice error={actionError} />}
-          <MagneticButton className="btn btn-primary" disabled={pending} type="submit">
-            Create {creatingKind}
-          </MagneticButton>
-        </form>
-      )}
+      <div className="flex h-[calc(100vh-10rem)] min-h-0 flex-col gap-4 overflow-hidden">
+        {creatingKind && (
+          <Card className="shrink-0">
+            <form onSubmit={(event) => void createResource(event)}>
+              <CardHeader className="flex-row items-center justify-between">
+                <h2 className="text-sm font-semibold">New {creatingKind}</h2>
+                <Button disabled={pending} size="sm" type="submit">
+                  Create {creatingKind}
+                </Button>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                <Field label="Name">
+                  <Input name="name" required />
+                </Field>
+                <Field label="Slug">
+                  <Input name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required />
+                </Field>
+                {actionError !== undefined && (
+                  <div className="md:col-span-2"><ErrorNotice error={actionError} /></div>
+                )}
+              </CardContent>
+            </form>
+          </Card>
+        )}
 
-      {resources.error && <ErrorNotice error={resources.error} />}
-      <div className="resource-workspace">
-        <aside className="resource-browser">
-          <section aria-labelledby="instruction-heading">
-            <h2 id="instruction-heading">Instructions</h2>
-            {instructions.map((resource) => (
-              <button
-                className={selectedId === resource.id ? "selected" : ""}
-                key={resource.id}
-                onClick={() => selectResource(resource, "instruction.md")}
-                type="button"
-              >
-                <FileText size={15} aria-hidden="true" />
-                <span>
-                  <strong>{resource.name}</strong>
-                  <small>{resource.slug} · r{resource.revisionNumber}</small>
-                </span>
-              </button>
-            ))}
-            {instructions.length === 0 && <p className="muted resource-empty">No instructions.</p>}
-          </section>
-
-          <section aria-labelledby="skill-heading">
-            <h2 id="skill-heading">Skills</h2>
-            {skills.map((resource) => {
-              const files = resources.data?.files.filter(({ resourceId }) => resourceId === resource.id) ?? [];
-              return (
-                <div className="resource-tree" key={resource.id}>
-                  <button
-                    className={selectedId === resource.id && !selectedPath ? "selected" : ""}
-                    onClick={() => selectResource(resource)}
-                    type="button"
-                  >
-                    <Package size={15} aria-hidden="true" />
-                    <span>
-                      <strong>{resource.name}</strong>
-                      <small>{resource.slug} · r{resource.revisionNumber}</small>
-                    </span>
-                  </button>
-                  <div className="resource-tree-files">
-                    {files.map((file) => (
-                      <button
-                        className={selectedId === resource.id && selectedPath === file.relativePath ? "selected" : ""}
-                        key={file.relativePath}
-                        onClick={() => selectResource(resource, file.relativePath)}
-                        type="button"
-                      >
-                        <FileCode size={14} aria-hidden="true" />
-                        <span>{file.relativePath}</span>
-                      </button>
-                    ))}
-                  </div>
+        {resources.error && <div className="shrink-0"><ErrorNotice error={resources.error} /></div>}
+        <div className="grid grid-cols-[280px_1fr] gap-4 min-h-0 flex-1 overflow-hidden">
+          <Card className="flex min-h-0 flex-col overflow-hidden">
+            <CardContent className="min-h-0 flex-1 overflow-y-auto p-2">
+              <section aria-labelledby="instruction-heading">
+                <h2
+                  className="px-2 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  id="instruction-heading"
+                >
+                  Instructions
+                </h2>
+                <div className="flex flex-col gap-1">
+                  {instructions.map((resource) => (
+                    <button
+                      className={
+                        selectedId === resource.id
+                          ? "flex w-full items-start gap-2 rounded-md bg-accent px-2.5 py-2 text-left text-accent-foreground transition-colors duration-150"
+                          : "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150 hover:bg-accent/60"
+                      }
+                      key={resource.id}
+                      onClick={() => selectResource(resource, "instruction.md")}
+                      type="button"
+                    >
+                      <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="min-w-0 flex-1">
+                        <strong className="block truncate text-sm font-medium">{resource.name}</strong>
+                        <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
+                          {resource.slug} · r{resource.revisionNumber}
+                        </small>
+                      </span>
+                      <Badge className="mt-0.5" variant="outline">instruction</Badge>
+                    </button>
+                  ))}
                 </div>
-              );
-            })}
-            {skills.length === 0 && <p className="muted resource-empty">No skills.</p>}
-          </section>
-        </aside>
+                {instructions.length === 0 && (
+                  <p className="px-2 py-3 text-xs text-muted-foreground">No instructions.</p>
+                )}
+              </section>
 
-        <main className="resource-detail">
-          {!selected || !selectedFile
-            ? <Empty title="Select a resource file" hint="The file opens here for direct editing." />
-            : (
-                <>
-                  <header className="resource-editor-header">
-                    <div>
-                      <Chip>{selected.kind}</Chip>
-                      <h2 className="display-sm">{selected.name}</h2>
-                      <p className="mono">{selected.slug} · revision {selected.revisionNumber}</p>
-                    </div>
-                    {selected.kind === "skill" && (
-                      <div className="button-row">
-                        <button className="btn" onClick={() => setAddingFile((value) => !value)}>
-                          <Plus size={15} aria-hidden="true" />
-                          New file
-                        </button>
+              <section className="mt-4" aria-labelledby="skill-heading">
+                <h2
+                  className="px-2 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                  id="skill-heading"
+                >
+                  Skills
+                </h2>
+                <div className="flex flex-col gap-1">
+                  {skills.map((resource) => {
+                    const files = resources.data?.files.filter(({ resourceId }) => resourceId === resource.id) ?? [];
+                    return (
+                      <div key={resource.id}>
                         <button
-                          className="btn btn-danger"
-                          disabled={selectedFile.relativePath === "SKILL.md" || pending}
-                          onClick={() => void deleteSelectedFile()}
+                          className={
+                            selectedId === resource.id && !selectedPath
+                              ? "flex w-full items-start gap-2 rounded-md bg-accent px-2.5 py-2 text-left text-accent-foreground transition-colors duration-150"
+                              : "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150 hover:bg-accent/60"
+                          }
+                          onClick={() => selectResource(resource)}
+                          type="button"
                         >
-                          <Trash2 size={15} aria-hidden="true" />
-                          Delete file
+                          <Package className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <span className="min-w-0 flex-1">
+                            <strong className="block truncate text-sm font-medium">{resource.name}</strong>
+                            <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
+                              {resource.slug} · r{resource.revisionNumber}
+                            </small>
+                          </span>
+                          <Badge className="mt-0.5" variant="outline">skill</Badge>
                         </button>
+                        <div className="ml-5 flex flex-col border-l border-border pl-2">
+                          {files.map((file) => (
+                            <button
+                              className={
+                                selectedId === resource.id && selectedPath === file.relativePath
+                                  ? "flex w-full items-center gap-2 rounded-md bg-accent px-2 py-1.5 text-left text-xs text-accent-foreground transition-colors duration-150"
+                                  : "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors duration-150 hover:bg-accent/60"
+                              }
+                              key={file.relativePath}
+                              onClick={() => selectResource(resource, file.relativePath)}
+                              type="button"
+                            >
+                              <FileCode className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                              <span className="truncate font-mono">{file.relativePath}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    )}
-                  </header>
-                  {addingFile && selected.kind === "skill" && (
-                    <form className="add-file-bar" onSubmit={(event) => void addSkillFile(event)}>
-                      <div className="grow">
-                        <Field label="Relative path">
-                          <input name="relativePath" placeholder="scripts/check.ts" required />
-                        </Field>
+                    );
+                  })}
+                </div>
+                {skills.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground">No skills.</p>}
+              </section>
+            </CardContent>
+          </Card>
+
+          <Card className="flex min-h-0 flex-col overflow-hidden">
+            {!selected || !selectedFile
+              ? (
+                  <CardContent className="flex min-h-0 flex-1 items-center justify-center">
+                    <Empty title="Select a resource file" hint="The file opens here for direct editing." />
+                  </CardContent>
+                )
+              : (
+                  <>
+                    <CardHeader className="shrink-0 flex-row items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="mb-1 flex items-center gap-2">
+                          <Badge variant="outline">{selected.kind}</Badge>
+                          <h2 className="truncate text-sm font-semibold">{selected.name}</h2>
+                        </div>
+                        <p className="truncate font-mono text-xs text-muted-foreground">
+                          {selected.slug} · revision {selected.revisionNumber}
+                        </p>
                       </div>
-                      <button className="btn btn-primary" disabled={pending} type="submit">Create file</button>
-                    </form>
-                  )}
-                  {actionError !== undefined && <ErrorNotice error={actionError} />}
-                  <ResourceFileEditor
-                    key={`${selected.revisionId}-${selectedFile.relativePath}`}
-                    resource={selected}
-                    file={selectedFile}
-                    files={selectedFiles}
-                  />
-                </>
-              )}
-        </main>
+                      {selected.kind === "skill" && (
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button
+                            onClick={() => setAddingFile((value) => !value)}
+                            size="sm"
+                            variant="outline"
+                          >
+                            <Plus aria-hidden="true" />
+                            New file
+                          </Button>
+                          <Button
+                            disabled={selectedFile.relativePath === "SKILL.md" || pending}
+                            onClick={() => void deleteSelectedFile()}
+                            size="sm"
+                            variant="destructive"
+                          >
+                            <Trash2 aria-hidden="true" />
+                            Delete file
+                          </Button>
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden p-0">
+                      {addingFile && selected.kind === "skill" && (
+                        <form
+                          className="add-file-bar flex shrink-0 items-end gap-2 border-b border-border p-3"
+                          onSubmit={(event) => void addSkillFile(event)}
+                        >
+                          <Field className="min-w-0 flex-1" label="Relative path">
+                            <Input name="relativePath" placeholder="scripts/check.ts" required />
+                          </Field>
+                          <Button disabled={pending} size="sm" type="submit">Create file</Button>
+                        </form>
+                      )}
+                      {actionError !== undefined && (
+                        <div className="shrink-0 border-b border-border p-3">
+                          <ErrorNotice error={actionError} />
+                        </div>
+                      )}
+                      <ResourceFileEditor
+                        key={`${selected.revisionId}-${selectedFile.relativePath}`}
+                        resource={selected}
+                        file={selectedFile}
+                        files={selectedFiles}
+                      />
+                    </CardContent>
+                  </>
+                )}
+          </Card>
+        </div>
       </div>
     </Page>
   );

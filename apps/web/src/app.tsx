@@ -5,6 +5,7 @@ import { AuthGate, LoginPage, SetupPage } from "./auth.js";
 import { ConfigEditorPage } from "./pages/config-editor.js";
 import { ConfigSetListPage } from "./pages/config-set-list.js";
 import { CredentialsPage } from "./pages/credentials.js";
+import { DeviceApprovePage } from "./pages/device-approve.js";
 import { DevicesPage } from "./pages/devices.js";
 import { ReleasesPage } from "./pages/releases.js";
 import { SettingsPage } from "./pages/settings.js";
@@ -26,6 +27,7 @@ export function App(): ReactElement {
         <Route path="/credentials" element={<CredentialsPage />} />
         <Route path="/releases" element={<ReleasesPage />} />
         <Route path="/devices" element={<DevicesPage />} />
+        <Route path="/devices/approve" element={<DeviceApprovePage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/config-sets" replace />} />

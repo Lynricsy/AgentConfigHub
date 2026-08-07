@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitCompare, Minus, Plus, Trash2, Undo2 } from "lucide-react";
-import { motion } from "motion/react";
+import { ChevronDown, ChevronRight, GitCompare, Minus, Plus, Trash2, Undo2 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 
 import { Diagnostic } from "@agent-config-hub/protocol";
@@ -16,9 +16,16 @@ import {
   mutateEmpty,
 } from "../api.js";
 import { ErrorNotice } from "../auth.js";
-import { Chip, Field } from "../ui/bits.js";
-import { MagneticButton } from "../ui/magnetic.js";
+import { Badge } from "../ui/badge.js";
+import { Button } from "../ui/button.js";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js";
+import { Field } from "../ui/field.js";
 import { Page } from "../ui/page.js";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select.js";
+import { Textarea } from "../ui/textarea.js";
+
+const EMPTY_SELECTION = "__none__";
 
 const PublishResult = z.object({
   releaseId: z.string(),
@@ -46,6 +53,34 @@ const DiffResult = z.object({
 });
 
 type DiagnosticItem = z.infer<typeof Diagnostic>;
+type DiffEntry = z.infer<typeof DiffResult>["entries"][number];
+
+function DiffDetails({ entry }: { entry: DiffEntry }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="min-w-0 md:col-span-3 md:ml-7">
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="px-0 text-muted-foreground">
+          {open
+            ? <ChevronDown aria-hidden="true" />
+            : <ChevronRight aria-hidden="true" />}
+          {entry.beforeSize ?? 0} → {entry.afterSize ?? 0} bytes
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="pt-2">
+        <div className="grid gap-3 md:grid-cols-2">
+          <pre className="overflow-x-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
+            {entry.beforeText ?? entry.beforeSha256}
+          </pre>
+          <pre className="overflow-x-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
+            {entry.afterText ?? entry.afterSha256}
+          </pre>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 export function ReleasesPage() {
   const queryClient = useQueryClient();
@@ -83,12 +118,14 @@ export function ReleasesPage() {
         queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] }),
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
       ]);
+      toast.success("Release published");
     } catch (error) {
       setActionError(error);
       if (error instanceof ApiClientError) {
         const parsed = Diagnostic.array().safeParse(error.details);
         if (parsed.success) setDiagnostics(parsed.data);
       }
+      toast.error(error instanceof Error ? error.message : "Release could not be published.");
     } finally { setPending(false); }
   };
   const rollback = async (releaseId: string) => {
@@ -122,178 +159,199 @@ export function ReleasesPage() {
       title="Releases"
       lede="Validate, freeze, compare, and restore exact output bytes."
       actions={(
-        <Field label="Configuration group">
-          <select
-            value={configSetId}
-            onChange={(event) => {
-              setConfigSetId(event.target.value);
+        <Field label="Configuration group" htmlFor="release-config-set" className="min-w-56">
+          <Select
+            value={configSetId || EMPTY_SELECTION}
+            onValueChange={(value) => {
+              setConfigSetId(value === EMPTY_SELECTION ? "" : value);
               setDiagnostics(null);
             }}
           >
-            <option value="">Choose…</option>
-            {sets.data?.map((set) => (
-              <option value={set.id} key={set.id}>{set.name}</option>
-            ))}
-          </select>
+            <SelectTrigger id="release-config-set" aria-label="Configuration group">
+              <SelectValue placeholder="Choose…" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={EMPTY_SELECTION}>Choose…</SelectItem>
+              {sets.data?.map((set) => (
+                <SelectItem value={set.id} key={set.id}>{set.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </Field>
       )}
     >
       {detail.data && (
-        <section className="publish-panel panel">
-          <div>
-            <p className="eyebrow">Draft r{detail.data.configSet.draftRevision}</p>
-            <h2 className="display-sm">Publish draft</h2>
-            <div className="mono muted">
-              <span>{detail.data.files.length} native files</span>
-              <span> / </span>
-              <span>{detail.data.selectedResources.length} shared resources</span>
-            </div>
-            <p className="muted">
-              The server publishes only after the complete freeze pipeline reports zero blocking diagnostics.
+        <Card>
+          <CardHeader>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Draft r{detail.data.configSet.draftRevision}
             </p>
-          </div>
-          <Field label="Release notes">
-            <input value={notes} onChange={(event) => setNotes(event.target.value)} />
-          </Field>
-          <div className="button-row">
-            <MagneticButton
-              className="btn btn-primary"
-              onClick={() => void publish()}
-              disabled={pending}
-            >
-              Validate &amp; publish immutable release
-            </MagneticButton>
-          </div>
-        </section>
+            <CardTitle>Publish draft</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="space-y-2">
+              <p className="font-mono text-xs text-muted-foreground">
+                {detail.data.files.length} native files / {detail.data.selectedResources.length} shared resources
+              </p>
+              <p className="text-sm text-muted-foreground">
+                The server publishes only after the complete freeze pipeline reports zero blocking diagnostics.
+              </p>
+            </div>
+            <Field label="Release notes">
+              <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </Field>
+            <div>
+              <Button onClick={() => void publish()} disabled={pending}>
+                Validate &amp; publish immutable release
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {actionError !== undefined && <ErrorNotice error={actionError} />}
 
       {diagnostics && (
-        <section className="release-diagnostics panel">
-          <header>
-            <strong>Authoritative release validation</strong>
-            <span>{blocking} blocking · {diagnostics.length} total</span>
-          </header>
-          {diagnostics.length === 0
-            ? <p>The release was published after the complete freeze pipeline passed.</p>
-            : diagnostics.map((item, index) => (
-              <div className={`diagnostic ${item.severity}`} key={`${item.code}-${index}`}>
-                <span>{item.severity}</span>
-                <code>{item.code}</code>
-                <p>{item.message}</p>
-              </div>
-            ))}
-        </section>
+        <Card>
+          <CardHeader className="flex-row items-center justify-between gap-4">
+            <CardTitle>Authoritative release validation</CardTitle>
+            <span className="text-xs text-muted-foreground">{blocking} blocking · {diagnostics.length} total</span>
+          </CardHeader>
+          <CardContent className="grid gap-2">
+            {diagnostics.length === 0
+              ? <p className="text-sm text-success">The release was published after the complete freeze pipeline passed.</p>
+              : diagnostics.map((item, index) => (
+                <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[auto_auto_1fr] sm:items-start" key={`${item.code}-${index}`}>
+                  <Badge
+                    variant={item.severity === "error"
+                      ? "destructive"
+                      : item.severity === "warning"
+                        ? "warning"
+                        : "outline"}
+                  >
+                    {item.severity}
+                  </Badge>
+                  <code className="text-xs text-muted-foreground">{item.code}</code>
+                  <p className="text-sm">{item.message}</p>
+                </div>
+              ))}
+          </CardContent>
+        </Card>
       )}
 
-      <section className="compare-panel panel">
-        <h2 className="display-sm">Compare releases</h2>
-        <div className="form-row">
-          <label>
-            Before
-            <select value={beforeId} onChange={(event) => setBeforeId(event.target.value)}>
-              <option value="">Empty baseline</option>
-              {releases.data?.map((release) => (
-                <option key={release.id} value={release.id}>r{release.releaseNumber}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            After
-            <select value={afterId} onChange={(event) => setAfterId(event.target.value)}>
-              <option value="">Choose…</option>
-              {releases.data?.map((release) => (
-                <option key={release.id} value={release.id}>r{release.releaseNumber}</option>
-              ))}
-            </select>
-          </label>
-          <button className="btn" onClick={() => void compare()}>Compare</button>
-        </div>
-        {diff && (
-          <div className="diff-list">
-            {diff.entries.map((entry) => {
-              const color = entry.action === "add"
-                ? "var(--volt)"
-                : entry.action === "change"
-                  ? "var(--warn)"
-                  : "var(--danger)";
-              const ActionIcon = entry.action === "add"
-                ? Plus
-                : entry.action === "change"
-                  ? GitCompare
-                  : Minus;
-
-              return (
-                <article className={`diff-entry ${entry.action}`} key={entry.target}>
-                  <ActionIcon
-                    size={15}
-                    strokeWidth={1.5}
-                    aria-hidden="true"
-                    style={{ color }}
-                  />
-                  <span className="mono" style={{ color }}>{entry.action}</span>
-                  <code>{entry.target}</code>
-                  {entry.sensitive
-                    ? <Chip tone="danger">sensitive</Chip>
-                    : (
-                      <details>
-                        <summary>{entry.beforeSize ?? 0} → {entry.afterSize ?? 0} bytes</summary>
-                        <div className="conflict-columns">
-                          <pre>{entry.beforeText ?? entry.beforeSha256}</pre>
-                          <pre>{entry.afterText ?? entry.afterSha256}</pre>
-                        </div>
-                      </details>
-                    )}
-                </article>
-              );
-            })}
+      <Card>
+        <CardHeader>
+          <CardTitle>Compare releases</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
+            <Field label="Before" htmlFor="release-before">
+              <Select
+                value={beforeId || EMPTY_SELECTION}
+                onValueChange={(value) => setBeforeId(value === EMPTY_SELECTION ? "" : value)}
+              >
+                <SelectTrigger id="release-before" aria-label="Before">
+                  <SelectValue placeholder="Empty baseline" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={EMPTY_SELECTION}>Empty baseline</SelectItem>
+                  {releases.data?.map((release) => (
+                    <SelectItem key={release.id} value={release.id}>r{release.releaseNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label="After" htmlFor="release-after">
+              <Select
+                value={afterId || EMPTY_SELECTION}
+                onValueChange={(value) => setAfterId(value === EMPTY_SELECTION ? "" : value)}
+              >
+                <SelectTrigger id="release-after" aria-label="After">
+                  <SelectValue placeholder="Choose…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={EMPTY_SELECTION}>Choose…</SelectItem>
+                  {releases.data?.map((release) => (
+                    <SelectItem key={release.id} value={release.id}>r{release.releaseNumber}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Button variant="outline" onClick={() => void compare()}>Compare</Button>
           </div>
-        )}
-      </section>
+          {diff && (
+            <div className="grid gap-3">
+              {diff.entries.map((entry) => {
+                const toneClass = entry.action === "add"
+                  ? "text-success"
+                  : entry.action === "change"
+                    ? "text-warning"
+                    : "text-destructive";
+                const ActionIcon = entry.action === "add"
+                  ? Plus
+                  : entry.action === "change"
+                    ? GitCompare
+                    : Minus;
 
-      <div className="timeline">
-        {releases.data?.map((release, index) => {
+                return (
+                  <article className="grid min-w-0 gap-2 rounded-md border border-border p-3 md:grid-cols-[auto_auto_1fr] md:items-center" key={entry.target}>
+                    <ActionIcon className={toneClass} size={15} strokeWidth={1.5} aria-hidden="true" />
+                    <span className={`font-mono text-xs ${toneClass}`}>{entry.action}</span>
+                    <code className="min-w-0 truncate text-xs">{entry.target}</code>
+                    {entry.sensitive
+                      ? <Badge variant="destructive" className="md:col-span-3 md:ml-7 md:justify-self-start">sensitive</Badge>
+                      : <DiffDetails entry={entry} />}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <ol className="ml-2 border-l border-border pl-4">
+        {releases.data?.map((release) => {
           const current = detail.data?.configSet.currentReleaseId === release.id;
           return (
-            <motion.article
-              className="timeline-item"
-              key={release.id}
-              initial={{ opacity: 0, x: -16 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.04 }}
-            >
-              <span className="timeline-number">r{release.releaseNumber}</span>
-              <div>
-                <strong>{release.notes || "Release without notes"}</strong>
-                <p className="mono muted">
-                  {release.enabledAgents.join(" · ")} · draft {release.draftRevision}
-                </p>
-                <time className="mono muted">{new Date(release.createdAt).toLocaleString()}</time>
+            <li className="relative border-b border-border py-4 last:border-b-0" key={release.id}>
+              <span className="absolute -left-[1.3rem] top-6 size-2 rounded-full bg-border" aria-hidden="true" />
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm font-semibold">r{release.releaseNumber}</span>
+                    {current && <Badge variant="success">Current</Badge>}
+                  </div>
+                  <strong className="block text-sm">{release.notes || "Release without notes"}</strong>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {release.enabledAgents.join(" · ")} · draft {release.draftRevision}
+                  </p>
+                  <time className="font-mono text-xs text-muted-foreground">{new Date(release.createdAt).toLocaleString()}</time>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void rollback(release.id)}
+                    disabled={pending || current}
+                  >
+                    <Undo2 aria-hidden="true" />
+                    Rollback
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => void remove(release.id)}
+                    disabled={current}
+                  >
+                    <Trash2 aria-hidden="true" />
+                    Delete
+                  </Button>
+                </div>
               </div>
-              <div className="button-row">
-                {current && <Chip tone="volt">Current</Chip>}
-                <button
-                  className="btn"
-                  onClick={() => void rollback(release.id)}
-                  disabled={pending || current}
-                >
-                  <Undo2 size={15} strokeWidth={1.5} aria-hidden="true" />
-                  Rollback
-                </button>
-                <button
-                  className="btn btn-danger"
-                  onClick={() => void remove(release.id)}
-                  disabled={current}
-                >
-                  <Trash2 size={15} strokeWidth={1.5} aria-hidden="true" />
-                  Delete
-                </button>
-              </div>
-            </motion.article>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </Page>
   );
 }
