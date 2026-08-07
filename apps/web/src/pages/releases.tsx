@@ -119,8 +119,6 @@ export function ReleasesPage() {
 
   return (
     <Page
-      index="05"
-      eyebrow="Immutable history"
       title="Releases"
       lede="Validate, freeze, compare, and restore exact output bytes."
       actions={(

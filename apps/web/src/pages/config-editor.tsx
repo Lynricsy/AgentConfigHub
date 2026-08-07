@@ -753,8 +753,6 @@ export function ConfigEditorPage() {
 
   return (
     <Page
-      index="02"
-      eyebrow={`${detail.data.configSet.slug} · ${parsedAgent.data}`}
       title={detail.data.configSet.name}
       actions={(
         <>

@@ -141,8 +141,6 @@ export function ConfigSetListPage() {
 
   return (
     <Page
-      index="01"
-      eyebrow="Profiles"
       title="Configuration sets"
       lede="Agent configurations organized within shared release groups."
       actions={

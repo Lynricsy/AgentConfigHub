@@ -429,8 +429,6 @@ export function ResourcesPage() {
 
   return (
     <Page
-      index="03"
-      eyebrow="Shared library"
       title="Resources"
       lede="Edit reusable instructions and skill files directly. Bind them from each Agent configuration."
       actions={(

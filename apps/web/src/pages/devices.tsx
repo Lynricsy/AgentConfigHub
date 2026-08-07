@@ -56,8 +56,6 @@ export function DevicesPage() {
 
   return (
     <Page
-      index="06"
-      eyebrow="Pull-only access"
       title="Devices & tokens"
       lede="Approve pairing codes, issue automation credentials, and revoke access immediately."
     >

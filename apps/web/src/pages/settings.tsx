@@ -61,8 +61,6 @@ export function SettingsPage() {
   };
   return (
     <Page
-      index="07"
-      eyebrow="Control plane"
       title="Settings"
       lede="Security boundaries for this single-instance deployment."
     >

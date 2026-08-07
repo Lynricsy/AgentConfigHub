@@ -102,8 +102,6 @@ export function CredentialsPage() {
 
   return (
     <Page
-      index="04"
-      eyebrow="Secret inventory"
       title="Credentials"
       lede="Values remain masked; reveal requires password re-authentication."
       actions={
