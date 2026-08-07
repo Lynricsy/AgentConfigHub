@@ -108,9 +108,13 @@ export function SettingsPage() {
                   required
                 />
               </Field>
-              <label className="flex items-center gap-2 text-sm">
+              {/* Radix Checkbox 渲染的是 button,包裹式 label 不产生可访问名,
+                  必须显式 aria-label */}
+              <label className="flex items-center gap-2 text-sm" htmlFor="revoke-pull-tokens">
                 <Checkbox
+                  aria-label="Revoke every device and automation token"
                   checked={revokePullTokens}
+                  id="revoke-pull-tokens"
                   name="revokePullTokens"
                   onCheckedChange={(checked) => setRevokePullTokens(checked === true)}
                 />

@@ -14,7 +14,9 @@ export function DialogContent({ className, children, ...props }: ComponentProps<
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px]" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",
+          // outline-none:Radix 会把焦点放在 Content 本身,全局 :focus-visible ring
+          // 会给整个弹窗描一圈 primary 色边;焦点指示由内部控件提供
+          "fixed left-1/2 top-1/2 z-50 w-[calc(100vw-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 outline-none",
           "rounded-lg border border-border bg-card p-5 text-card-foreground shadow-2xl",
           className,
         )}

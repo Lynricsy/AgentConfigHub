@@ -44,6 +44,9 @@ export function ConfigSetListPage() {
   const query = useQuery({ queryKey: ["config-sets"], queryFn: () => api("/api/v1/config-sets", ConfigSetList) });
   const selectedGroup = query.data?.find((configSet) => configSet.id === groupId);
   const selectableAgents = availableAgents(selectedGroup);
+  // 冲突后重取 config-sets 可能让候选集不再包含 agentId(受控 Select 会显示空白,
+  // 且重试会提交一个控件里并不存在的 agent),所以读值一律走候选集内的有效值
+  const effectiveAgentId = selectableAgents.includes(agentId) ? agentId : selectableAgents[0];
   const create = useMutation({
     mutationFn: async (input:
       | {
@@ -101,19 +104,20 @@ export function ConfigSetListPage() {
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (!effectiveAgentId) return;
     const data = new FormData(event.currentTarget);
     if (selectedGroup) {
       create.mutate({
         kind: "existing",
         groupId: selectedGroup.id,
-        agentId,
+        agentId: effectiveAgentId,
         revision: selectedGroup.draftRevision,
       });
       return;
     }
     create.mutate({
       kind: "new",
-      agentId,
+      agentId: effectiveAgentId,
       name: String(data.get("name")),
       slug: String(data.get("slug")),
     });
@@ -223,7 +227,7 @@ export function ConfigSetListPage() {
                 label="Agent"
               >
                 <Select
-                  value={agentId}
+                  value={effectiveAgentId ?? ""}
                   disabled={selectableAgents.length === 0}
                   onValueChange={(value) => setAgentId(AgentId.parse(value))}
                 >

@@ -16,6 +16,7 @@ import {
   type ResourceList as ResourceData,
 } from "../api.js";
 import { ErrorNotice } from "../auth.js";
+import { cn } from "../lib/cn.js";
 import { defineMonacoThemes, monacoThemeFor } from "../monaco-theme.js";
 import { useTheme } from "../theme.js";
 import { Badge } from "../ui/badge.js";
@@ -503,23 +504,24 @@ export function ResourcesPage() {
                 <div className="flex flex-col gap-1">
                   {instructions.map((resource) => (
                     <button
-                      className={
+                      className={cn(
+                        // grid 而非 flex:让 Badge 占第 1 行第 3 列,元数据行独占整行宽度,
+                        // 同时保持 DOM 顺序 name → slug·rN → kind(e2e 依赖可访问名的拼接顺序)
+                        "grid w-full grid-cols-[auto_1fr_auto] items-start gap-x-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150",
                         selectedId === resource.id
-                          ? "flex w-full items-start gap-2 rounded-md bg-accent px-2.5 py-2 text-left text-accent-foreground transition-colors duration-150"
-                          : "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150 hover:bg-accent/60"
-                      }
+                          ? "bg-accent text-accent-foreground"
+                          : "hover:bg-accent/60",
+                      )}
                       key={resource.id}
                       onClick={() => selectResource(resource, "instruction.md")}
                       type="button"
                     >
-                      <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                      <span className="min-w-0 flex-1">
-                        <strong className="block truncate text-sm font-medium">{resource.name}</strong>
-                        <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
-                          {resource.slug} · r{resource.revisionNumber}
-                        </small>
-                      </span>
-                      <Badge className="mt-0.5" variant="outline">instruction</Badge>
+                      <FileText className="col-start-1 row-start-1 mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <strong className="col-start-2 row-start-1 min-w-0 truncate text-sm font-medium">{resource.name}</strong>
+                      <small className="col-span-2 col-start-2 row-start-2 min-w-0 truncate font-mono text-[0.6875rem] text-muted-foreground">
+                        {resource.slug} · r{resource.revisionNumber}
+                      </small>
+                      <Badge className="col-start-3 row-start-1 mt-0.5" variant="outline">instruction</Badge>
                     </button>
                   ))}
                 </div>
@@ -541,22 +543,21 @@ export function ResourcesPage() {
                     return (
                       <div key={resource.id}>
                         <button
-                          className={
+                          className={cn(
+                            "grid w-full grid-cols-[auto_1fr_auto] items-start gap-x-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150",
                             selectedId === resource.id && !selectedPath
-                              ? "flex w-full items-start gap-2 rounded-md bg-accent px-2.5 py-2 text-left text-accent-foreground transition-colors duration-150"
-                              : "flex w-full items-start gap-2 rounded-md px-2.5 py-2 text-left transition-colors duration-150 hover:bg-accent/60"
-                          }
+                              ? "bg-accent text-accent-foreground"
+                              : "hover:bg-accent/60",
+                          )}
                           onClick={() => selectResource(resource)}
                           type="button"
                         >
-                          <Package className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                          <span className="min-w-0 flex-1">
-                            <strong className="block truncate text-sm font-medium">{resource.name}</strong>
-                            <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
-                              {resource.slug} · r{resource.revisionNumber}
-                            </small>
-                          </span>
-                          <Badge className="mt-0.5" variant="outline">skill</Badge>
+                          <Package className="col-start-1 row-start-1 mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                          <strong className="col-start-2 row-start-1 min-w-0 truncate text-sm font-medium">{resource.name}</strong>
+                          <small className="col-span-2 col-start-2 row-start-2 min-w-0 truncate font-mono text-[0.6875rem] text-muted-foreground">
+                            {resource.slug} · r{resource.revisionNumber}
+                          </small>
+                          <Badge className="col-start-3 row-start-1 mt-0.5" variant="outline">skill</Badge>
                         </button>
                         <div className="ml-5 flex flex-col border-l border-border pl-2">
                           {files.map((file) => (

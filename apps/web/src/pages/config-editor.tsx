@@ -347,7 +347,7 @@ function TextFileEditor({
           role="alert"
         >
           <div>
-            <h3 className="text-sm font-semibold text-destructive">Resource revision changed</h3>
+            <h3 className="text-sm font-semibold text-destructive">Revision conflict</h3>
             <p className="mt-1 text-xs text-muted-foreground">
               Your model is preserved. Compare it with the current server value.
             </p>
@@ -355,13 +355,13 @@ function TextFileEditor({
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div className="min-w-0">
               <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                Local model
+                LOCAL MODEL
               </p>
               <pre className="max-h-32 overflow-auto rounded-md border border-border bg-card p-2 font-mono text-xs">{text}</pre>
             </div>
             <div className="min-w-0">
               <p className="mb-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">
-                Server value
+                SERVER VALUE
               </p>
               <pre className="max-h-32 overflow-auto rounded-md border border-border bg-card p-2 font-mono text-xs">{serverConflictText}</pre>
             </div>
@@ -383,7 +383,7 @@ function TextFileEditor({
               }}
             >
               <RotateCcw size={15} strokeWidth={1.5} aria-hidden="true" />
-              Reload server version
+              Reload server
             </Button>
           </div>
         </div>
@@ -585,20 +585,24 @@ function ConfigResourceBindings({
                 )}
                 key={resource.id}
               >
+                {/* 原生 checkbox 原本被可见文案包裹,点名字即可切换;Radix 的 checkbox 是
+                    button,包裹式 label 不产生关联,所以显式用 id + htmlFor 恢复点击区域。
+                    aria-label 保留为可访问名(e2e 依赖 getByRole checkbox name)。 */}
                 <div className="flex items-start gap-2">
                   <Checkbox
                     aria-label={resource.name}
                     checked={selected}
                     className="mt-0.5"
                     disabled={pendingResourceId !== undefined}
+                    id={`binding-${agentId}-${resource.id}`}
                     onCheckedChange={(checked) => void updateBinding(resource.id, checked === true, order)}
                   />
-                  <span className="min-w-0">
+                  <label className="min-w-0 cursor-pointer" htmlFor={`binding-${agentId}-${resource.id}`}>
                     <strong className="block truncate text-xs font-medium">{resource.name}</strong>
                     <small className="block truncate font-mono text-[0.6875rem] text-muted-foreground">
                       {resource.slug} · r{resource.revisionNumber}
                     </small>
-                  </span>
+                  </label>
                 </div>
                 {selected && (
                   <form
@@ -844,7 +848,8 @@ export function ConfigEditorPage() {
           configSetId={configSetId}
           detail={detail.data}
         />
-        <div className="grid min-h-0 flex-1 grid-cols-[280px_1fr] gap-4 overflow-hidden">
+        {/* 720px 以下退回单栏,与重构前 .editor-shell 的断点一致 */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden min-[720px]:grid-cols-[280px_1fr]">
           <Card className="min-h-0 overflow-y-auto p-2">
             <div className="space-y-1">
               {files.map((file) => {

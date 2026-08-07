@@ -21,9 +21,9 @@ import { Button } from "../ui/button.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js";
 import { Field } from "../ui/field.js";
+import { Input } from "../ui/input.js";
 import { Page } from "../ui/page.js";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select.js";
-import { Textarea } from "../ui/textarea.js";
 
 const EMPTY_SELECTION = "__none__";
 
@@ -70,10 +70,12 @@ function DiffDetails({ entry }: { entry: DiffEntry }) {
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-2">
         <div className="grid gap-3 md:grid-cols-2">
-          <pre className="overflow-x-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
+          {/* 与旧 .conflict-columns pre 一致:双轴有界滚动。diff 单侧可达 2 MiB,
+              只开横向滚动会把页面撑到极高 */}
+          <pre className="max-h-[300px] overflow-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
             {entry.beforeText ?? entry.beforeSha256}
           </pre>
-          <pre className="overflow-x-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
+          <pre className="max-h-[300px] overflow-auto rounded-md border border-border bg-card p-3 font-mono text-xs">
             {entry.afterText ?? entry.afterSha256}
           </pre>
         </div>
@@ -165,6 +167,10 @@ export function ReleasesPage() {
             onValueChange={(value) => {
               setConfigSetId(value === EMPTY_SELECTION ? "" : value);
               setDiagnostics(null);
+              // 换配置组后旧的 release id 不再存在于候选集,受控 Select 会显示空白
+              setBeforeId("");
+              setAfterId("");
+              setDiff(undefined);
             }}
           >
             <SelectTrigger id="release-config-set" aria-label="Configuration group">
@@ -198,7 +204,8 @@ export function ReleasesPage() {
               </p>
             </div>
             <Field label="Release notes">
-              <Textarea value={notes} onChange={(event) => setNotes(event.target.value)} />
+              {/* 保持单行 input:原版是 <input>,换成 textarea 会把换行符写进请求体 */}
+              <Input value={notes} onChange={(event) => setNotes(event.target.value)} />
             </Field>
             <div>
               <Button onClick={() => void publish()} disabled={pending}>
@@ -223,6 +230,7 @@ export function ReleasesPage() {
               : diagnostics.map((item, index) => (
                 <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-[auto_auto_1fr] sm:items-start" key={`${item.code}-${index}`}>
                   <Badge
+                    className="justify-self-start"
                     variant={item.severity === "error"
                       ? "destructive"
                       : item.severity === "warning"
@@ -299,7 +307,7 @@ export function ReleasesPage() {
                     <span className={`font-mono text-xs ${toneClass}`}>{entry.action}</span>
                     <code className="min-w-0 truncate text-xs">{entry.target}</code>
                     {entry.sensitive
-                      ? <Badge variant="destructive" className="md:col-span-3 md:ml-7 md:justify-self-start">sensitive</Badge>
+                      ? <Badge variant="destructive" className="justify-self-start md:col-span-3 md:ml-7">sensitive</Badge>
                       : <DiffDetails entry={entry} />}
                   </article>
                 );

@@ -47,10 +47,16 @@ export function CredentialsPage() {
   }>();
   const credentials = useQuery({ queryKey: ["credentials"], queryFn: () => api("/api/v1/credentials", CredentialList) });
   const configSets = useQuery({ queryKey: ["config-sets"], queryFn: () => api("/api/v1/config-sets", ConfigSetList) });
+  // 选中的配置组可能已被别处删除;列表加载完成后若不再包含它,就退回未选择态,
+  // 否则受控 Select 会显示空白,而 query 还在按不存在的 id 取数据
+  const effectiveConfigSetId = configSetId && configSets.data
+    && !configSets.data.some(({ id }) => id === configSetId)
+    ? ""
+    : configSetId;
   const config = useQuery({
-    queryKey: ["config-set", configSetId],
-    queryFn: () => api(`/api/v1/config-sets/${configSetId}`, ConfigSetDetail),
-    enabled: Boolean(configSetId),
+    queryKey: ["config-set", effectiveConfigSetId],
+    queryFn: () => api(`/api/v1/config-sets/${effectiveConfigSetId}`, ConfigSetDetail),
+    enabled: Boolean(effectiveConfigSetId),
   });
   useEffect(() => {
     if (revealedValue === undefined) return;
@@ -168,9 +174,13 @@ export function CredentialsPage() {
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {credentials.data?.map((credential) => (
           <Card key={credential.id}>
-            <CardHeader className="flex-row items-center justify-between">
-              <Badge variant="outline">{credential.provider}</Badge>
-              <span className="font-mono text-xs text-muted-foreground">r{credential.revision}</span>
+            <CardHeader className="flex-row items-center justify-between gap-2">
+              {/* provider 最长 120 字符,Badge 基类是 whitespace-nowrap,
+                  必须给它可收缩的 min-w-0 + truncate,否则会挤走/溢出 revision */}
+              <Badge className="min-w-0" variant="outline">
+                <span className="truncate">{credential.provider}</span>
+              </Badge>
+              <span className="shrink-0 font-mono text-xs text-muted-foreground">r{credential.revision}</span>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               <CardTitle>{credential.label}</CardTitle>
@@ -227,7 +237,7 @@ export function CredentialsPage() {
           </div>
           <Field label="Configuration group" htmlFor="credentials-config-set" className="w-full md:w-72">
             <Select
-              value={configSetId || NONE}
+              value={effectiveConfigSetId || NONE}
               onValueChange={(value) => setConfigSetId(value === NONE ? "" : value)}
             >
               <SelectTrigger id="credentials-config-set" aria-label="Configuration group">

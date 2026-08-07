@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { mutateEmpty } from "../api.js";
@@ -25,8 +25,14 @@ export function DeviceApprovePage() {
   const [status, setStatus] = useState<ApprovalStatus>("idle");
   const [error, setError] = useState<unknown>();
 
+  // 同步 ref 锁:按钮 disabled 只在下一次渲染后生效,期间连点/连按 Enter 会重复
+  // 提交同一 code。服务端只接受一次审批,第二次抛 DEVICE_CODE_INVALID,收尾顺序
+  // 一反转就会在设备实际已获批时停在 error 态。
+  const submitting = useRef(false);
   const approve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting.current) return;
+    submitting.current = true;
     setStatus("pending");
     setError(undefined);
     try {
@@ -35,6 +41,8 @@ export function DeviceApprovePage() {
     } catch (cause) {
       setError(cause);
       setStatus("error");
+    } finally {
+      submitting.current = false;
     }
   };
 
