@@ -112,6 +112,10 @@ export function ReleasesPage() {
   }>();
   // 请求序号:比较是手动触发的并发请求,先发的慢响应不能覆盖后发的结果
   const compareRequest = useRef(0);
+  // 发布/回滚/删除三者互斥的同步锁:disabled 要等下一次渲染才生效,同一 tick 内的
+  // 连点(尤其 Delete 双击)会重复发出请求 —— 删除成功后第二个请求返回失败,
+  // 用户会看到一条与实际结果相反的错误。
+  const mutating = useRef(false);
   const sets = useQuery({
     queryKey: ["config-sets"],
     queryFn: () => api("/api/v1/config-sets", ConfigSetList),
@@ -144,7 +148,8 @@ export function ReleasesPage() {
     : undefined;
 
   const publish = async () => {
-    if (!detail.data) return;
+    if (!detail.data || mutating.current) return;
+    mutating.current = true;
     setPending(true); setActionError(undefined);
     try {
       const result = await mutate(`/api/v1/config-sets/${configSetId}/releases`, PublishResult, { notes }, { revision: detail.data.configSet.draftRevision });
@@ -162,10 +167,11 @@ export function ReleasesPage() {
         if (parsed.success) setDiagnostics(parsed.data);
       }
       toast.error(error instanceof Error ? error.message : "Release could not be published.");
-    } finally { setPending(false); }
+    } finally { mutating.current = false; setPending(false); }
   };
   const rollback = async (releaseId: string) => {
-    if (!detail.data) return;
+    if (!detail.data || mutating.current) return;
+    mutating.current = true;
     setPending(true); setActionError(undefined);
     try {
       await mutate(`/api/v1/config-sets/${configSetId}/releases/${releaseId}/rollback`, RollbackResult, {}, { revision: detail.data.configSet.draftRevision });
@@ -175,13 +181,17 @@ export function ReleasesPage() {
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
       ]);
     } catch (error) { setActionError(error); }
-    finally { setPending(false); }
+    finally { mutating.current = false; setPending(false); }
   };
   const remove = async (releaseId: string) => {
+    if (mutating.current) return;
+    mutating.current = true;
+    setPending(true); setActionError(undefined);
     try {
       await mutateEmpty(`/api/v1/config-sets/${configSetId}/releases/${releaseId}`, {}, { method: "DELETE" });
       await queryClient.invalidateQueries({ queryKey: ["releases", configSetId] });
     } catch (error) { setActionError(error); }
+    finally { mutating.current = false; setPending(false); }
   };
   const compare = async () => {
     if (!effectiveAfterId) return;
@@ -401,7 +411,7 @@ export function ReleasesPage() {
                     variant="destructive"
                     size="sm"
                     onClick={() => void remove(release.id)}
-                    disabled={current}
+                    disabled={pending || current}
                   >
                     <Trash2 aria-hidden="true" />
                     Delete

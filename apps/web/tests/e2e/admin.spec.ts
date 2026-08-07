@@ -709,3 +709,48 @@ test("never shows one credential's plaintext in another's reveal dialog", async 
 
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
+
+test("serializes release mutations and never deletes twice", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Releases/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  // 再发一版:原先的 current 变为可删除,保证存在一个 Delete 未禁用的行
+  await page.getByRole("button", { name: "Validate & publish immutable release" }).click();
+  const deletable = page.locator("button:enabled").filter({ hasText: "Delete" }).first();
+  await expect(deletable).toBeEnabled();
+
+  const deleteRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "DELETE") deleteRequests.push(request.url());
+  });
+
+  // 让 DELETE 慢一点,好观察在途期间的状态
+  await page.route("**/api/v1/config-sets/*/releases/*", async (route) => {
+    if (route.request().method() !== "DELETE") {
+      await route.continue();
+      return;
+    }
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 1500);
+    await promise;
+    await route.continue();
+  });
+
+  // 同一 tick 里点两次:disabled 要下一帧才生效,只有同步锁能挡住第二次
+  await deletable.evaluate((element: HTMLElement) => {
+    element.click();
+    element.click();
+  });
+
+  // 在途期间 publish/rollback 必须被 pending 挡住,不能与删除并发
+  await expect(page.getByRole("button", { name: "Validate & publish immutable release" })).toBeDisabled();
+
+  await expect.poll(() => deleteRequests.length, { timeout: 8000 }).toBe(1);
+  await expect(page.getByRole("button", { name: "Validate & publish immutable release" })).toBeEnabled();
+  // 删除成功,不应出现任何"第二次请求失败"的错误
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(deleteRequests).toHaveLength(1);
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
