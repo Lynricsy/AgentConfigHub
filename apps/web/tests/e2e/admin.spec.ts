@@ -565,6 +565,36 @@ test("ignores a slow diff response superseded by a newer compare", async ({ page
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
+test("does not surface an error from a compare abandoned by a selection change", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Releases/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  // 第一次比较慢慢地失败;注意这里用户**不会**再点 Compare,只是改选择,
+  // 所以请求序号不会前进 —— 错误必须靠"错误自带的选择"被过滤掉
+  await page.route("**/api/v1/releases/*/diff**", async (route) => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 2000);
+    await promise;
+    await route.fulfill({
+      status: 500,
+      json: { error: { code: "INTERNAL", message: "Diff failed for the old selection.", requestId: "req-stale-diff" } },
+    });
+  });
+
+  await chooseOption(page, "After", "r1");
+  await page.getByRole("button", { name: "Compare" }).click();
+
+  // 仅切换选择,不重新比较
+  await chooseOption(page, "After", "r2");
+
+  // 旧请求随后失败:它属于已被放弃的选择,不能把错误显示在当前选择上
+  await page.waitForTimeout(3000);
+  await expect(page.getByText(/Diff failed for the old selection/)).toHaveCount(0);
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("hides a stale diff when the compared release disappears", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: /Releases/ }).click();

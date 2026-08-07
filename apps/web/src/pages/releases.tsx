@@ -89,7 +89,12 @@ export function ReleasesPage() {
   const [configSetId, setConfigSetId] = useState("");
   const [notes, setNotes] = useState("");
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[] | null>(null);
-  const [actionError, setActionError] = useState<unknown>();
+  // 比较失败的错误要记住它属于哪一对选择:请求在途时用户只是改了选择(并未再点
+  // Compare),序号不会前进,旧请求的失败仍会被展示到新选择上。
+  const [actionError, setActionError] = useState<{
+    error: unknown;
+    compare?: { beforeId: string; afterId: string };
+  }>();
   const [pending, setPending] = useState(false);
   const [beforeId, setBeforeId] = useState("");
   const [afterId, setAfterId] = useState("");
@@ -128,6 +133,13 @@ export function ReleasesPage() {
     && diff.beforeId === effectiveBeforeId
     ? diff.result
     : undefined;
+  // 带 compare 标记的错误只在选择未变时展示;其余动作(发布/回滚/删除)的错误照旧
+  const visibleActionError = actionError !== undefined
+    && (actionError.compare === undefined
+      || (actionError.compare.beforeId === effectiveBeforeId
+        && actionError.compare.afterId === effectiveAfterId))
+    ? actionError.error
+    : undefined;
 
   const publish = async () => {
     if (!detail.data) return;
@@ -142,7 +154,7 @@ export function ReleasesPage() {
       ]);
       toast.success("Release published");
     } catch (error) {
-      setActionError(error);
+      setActionError({ error });
       if (error instanceof ApiClientError) {
         const parsed = Diagnostic.array().safeParse(error.details);
         if (parsed.success) setDiagnostics(parsed.data);
@@ -160,14 +172,14 @@ export function ReleasesPage() {
         queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] }),
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
       ]);
-    } catch (error) { setActionError(error); }
+    } catch (error) { setActionError({ error }); }
     finally { setPending(false); }
   };
   const remove = async (releaseId: string) => {
     try {
       await mutateEmpty(`/api/v1/config-sets/${configSetId}/releases/${releaseId}`, {}, { method: "DELETE" });
       await queryClient.invalidateQueries({ queryKey: ["releases", configSetId] });
-    } catch (error) { setActionError(error); }
+    } catch (error) { setActionError({ error }); }
   };
   const compare = async () => {
     if (!effectiveAfterId) return;
@@ -185,7 +197,7 @@ export function ReleasesPage() {
     }
     catch (error) {
       if (compareRequest.current !== requestId) return;
-      setActionError(error);
+      setActionError({ error, compare: { beforeId: requestedBefore, afterId: requestedAfter } });
     }
   };
   const blocking = diagnostics?.filter(({ severity }) => severity === "error").length ?? 0;
@@ -250,7 +262,7 @@ export function ReleasesPage() {
         </Card>
       )}
 
-      {actionError !== undefined && <ErrorNotice error={actionError} />}
+      {visibleActionError !== undefined && <ErrorNotice error={visibleActionError} />}
 
       {diagnostics && (
         <Card>
