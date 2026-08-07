@@ -1,0 +1,127 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+
+/* 亮/暗主题由 <html class="dark"> 切换（见 src/theme.tsx） */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: oklch(0.995 0.002 247);
+  --foreground: oklch(0.21 0.012 247);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.012 247);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.012 247);
+  --primary: oklch(0.525 0.135 131);
+  --primary-foreground: oklch(0.99 0.005 131);
+  --secondary: oklch(0.965 0.004 247);
+  --secondary-foreground: oklch(0.28 0.012 247);
+  --muted: oklch(0.965 0.004 247);
+  --muted-foreground: oklch(0.475 0.014 247);
+  --accent: oklch(0.94 0.006 247);
+  --accent-foreground: oklch(0.24 0.012 247);
+  --destructive: oklch(0.525 0.2 27);
+  --warning: oklch(0.56 0.125 72);
+  --success: oklch(0.5 0.105 168);
+  --border: oklch(0.905 0.006 247);
+  --input: oklch(0.905 0.006 247);
+  --ring: oklch(0.525 0.135 131);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: oklch(0.165 0.008 247);
+  --foreground: oklch(0.965 0.004 247);
+  --card: oklch(0.205 0.01 247);
+  --card-foreground: oklch(0.965 0.004 247);
+  --popover: oklch(0.225 0.011 247);
+  --popover-foreground: oklch(0.965 0.004 247);
+  --primary: oklch(0.925 0.175 118);
+  --primary-foreground: oklch(0.24 0.06 118);
+  --secondary: oklch(0.26 0.011 247);
+  --secondary-foreground: oklch(0.945 0.004 247);
+  --muted: oklch(0.245 0.011 247);
+  --muted-foreground: oklch(0.715 0.016 247);
+  --accent: oklch(0.285 0.012 247);
+  --accent-foreground: oklch(0.965 0.004 247);
+  --destructive: oklch(0.66 0.19 25);
+  --warning: oklch(0.82 0.145 80);
+  --success: oklch(0.78 0.135 168);
+  --border: oklch(0.3 0.012 247);
+  --input: oklch(0.33 0.012 247);
+  --ring: oklch(0.925 0.175 118);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+  --radius-xl: calc(var(--radius) + 6px);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv05", "ss03";
+  }
+
+  :focus-visible {
+    @apply outline-ring outline-2 outline-offset-2;
+  }
+
+  /* Monaco 自带完整样式体系，豁免 preflight 的控件 reset */
+  .monaco-editor button,
+  .monaco-editor input,
+  .monaco-editor textarea,
+  .monaco-editor select {
+    font: inherit;
+    color: inherit;
+  }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
