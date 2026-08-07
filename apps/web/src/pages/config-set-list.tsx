@@ -42,9 +42,16 @@ export function ConfigSetListPage() {
   const [view, setView] = useState<"group" | "agent">("group");
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["config-sets"], queryFn: () => api("/api/v1/config-sets", ConfigSetList) });
-  const selectedGroup = query.data?.find((configSet) => configSet.id === groupId);
+  // 选中的配置组可能被并发删除(DELETE /api/v1/config-sets/:id 存在)。刷新后的列表
+  // 若不再包含它,必须归一到 NEW_GROUP:否则 Select 显示空白、name/slug 字段不渲染
+  // (required 随之失效),而 submit 仍会走"新建组"分支,把 FormData 里缺失的字段
+  // 读成字符串 "null" 提交,服务端校验还会放行 —— 于是凭空建出一个叫 null 的配置组。
+  const groupIsListed = groupId === NEW_GROUP
+    || (query.data?.some(({ id }) => id === groupId) ?? false);
+  const effectiveGroupId = groupIsListed ? groupId : NEW_GROUP;
+  const selectedGroup = query.data?.find((configSet) => configSet.id === effectiveGroupId);
   const selectableAgents = availableAgents(selectedGroup);
-  // 冲突后重取 config-sets 可能让候选集不再包含 agentId(受控 Select 会显示空白,
+  // 同理:冲突后重取 config-sets 可能让候选集不再包含 agentId(受控 Select 会显示空白,
   // 且重试会提交一个控件里并不存在的 agent),所以读值一律走候选集内的有效值
   const effectiveAgentId = selectableAgents.includes(agentId) ? agentId : selectableAgents[0];
   const create = useMutation({
@@ -106,7 +113,9 @@ export function ConfigSetListPage() {
     event.preventDefault();
     if (!effectiveAgentId) return;
     const data = new FormData(event.currentTarget);
-    if (selectedGroup) {
+    if (effectiveGroupId !== NEW_GROUP) {
+      // 分支判定必须与字段渲染用同一个值,否则会出现"字段没渲染却走新建分支"
+      if (!selectedGroup) return;
       create.mutate({
         kind: "existing",
         groupId: selectedGroup.id,
@@ -183,7 +192,7 @@ export function ConfigSetListPage() {
                 label="Configuration group"
               >
                 <Select
-                  value={groupId}
+                  value={effectiveGroupId}
                   onValueChange={(nextGroupId) => {
                     const group = query.data?.find((configSet) => configSet.id === nextGroupId);
                     setGroupId(nextGroupId);
@@ -206,7 +215,7 @@ export function ConfigSetListPage() {
                   </SelectContent>
                 </Select>
               </Field>
-              {groupId === NEW_GROUP && (
+              {effectiveGroupId === NEW_GROUP && (
                 <>
                   <Field label="Group name">
                     <Input name="name" placeholder="Personal workstation" required />

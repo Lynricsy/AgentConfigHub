@@ -108,6 +108,12 @@ export function ReleasesPage() {
     queryFn: () => api(`/api/v1/config-sets/${configSetId}/releases`, ReleaseList),
     enabled: Boolean(configSetId),
   });
+  // 删除某个 release 后(remove 会 invalidate ["releases"]),beforeId/afterId 可能
+  // 指向已不存在的 release:受控 Select 会显示空白,compare 还会拿它去请求。
+  // 与换配置组时的清空互补 —— 那条路径清 state,这条路径兜住列表本身的变化。
+  const listedReleaseIds = new Set(releases.data?.map(({ id }) => id));
+  const effectiveBeforeId = listedReleaseIds.has(beforeId) ? beforeId : "";
+  const effectiveAfterId = listedReleaseIds.has(afterId) ? afterId : "";
 
   const publish = async () => {
     if (!detail.data) return;
@@ -150,8 +156,13 @@ export function ReleasesPage() {
     } catch (error) { setActionError(error); }
   };
   const compare = async () => {
-    if (!afterId) return;
-    try { setDiff(await api(`/api/v1/releases/${afterId}/diff${beforeId ? `?before=${beforeId}` : ""}`, DiffResult)); }
+    if (!effectiveAfterId) return;
+    try {
+      setDiff(await api(
+        `/api/v1/releases/${effectiveAfterId}/diff${effectiveBeforeId ? `?before=${effectiveBeforeId}` : ""}`,
+        DiffResult,
+      ));
+    }
     catch (error) { setActionError(error); }
   };
   const blocking = diagnostics?.filter(({ severity }) => severity === "error").length ?? 0;
@@ -255,7 +266,7 @@ export function ReleasesPage() {
           <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
             <Field label="Before" htmlFor="release-before">
               <Select
-                value={beforeId || EMPTY_SELECTION}
+                value={effectiveBeforeId || EMPTY_SELECTION}
                 onValueChange={(value) => setBeforeId(value === EMPTY_SELECTION ? "" : value)}
               >
                 <SelectTrigger id="release-before" aria-label="Before">
@@ -271,7 +282,7 @@ export function ReleasesPage() {
             </Field>
             <Field label="After" htmlFor="release-after">
               <Select
-                value={afterId || EMPTY_SELECTION}
+                value={effectiveAfterId || EMPTY_SELECTION}
                 onValueChange={(value) => setAfterId(value === EMPTY_SELECTION ? "" : value)}
               >
                 <SelectTrigger id="release-after" aria-label="After">

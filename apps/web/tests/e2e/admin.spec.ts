@@ -450,3 +450,61 @@ test("scrolls the workspace with the native wheel", async ({ page }) => {
   // 外层文档不参与滚动 —— 证明没有第二个滚动所有者
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
+
+test("falls back to a new group when the selected group disappears", async ({ page }) => {
+  await signIn(page);
+
+  // 打开创建表单并明确选中一个已存在的配置组
+  await page.getByRole("button", { name: "New config" }).click();
+  await chooseOption(page, "Configuration group", "E2E workstation · e2e-workstation");
+  const group = page.getByRole("combobox", { name: "Configuration group", exact: true });
+  await expect(group).toContainText("E2E workstation");
+  await expect(page.getByLabel("Group name")).toHaveCount(0);
+
+  // 让下一次 config-sets 刷新不再包含该组(等价于并发 DELETE /api/v1/config-sets/:id),
+  // 并让创建请求返回 REVISION_CONFLICT —— 那是组件唯一会在表单敞开时触发 refetch 的路径。
+  await page.route("**/api/v1/config-sets", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    const response = await route.fetch();
+    const sets = await response.json() as { name: string }[];
+    await route.fulfill({
+      response,
+      json: sets.filter(({ name }) => name !== "E2E workstation"),
+    });
+  });
+  await page.route("**/api/v1/config-sets/*/configs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 409,
+      json: { error: { code: "REVISION_CONFLICT", message: "Draft revision changed.", requestId: "req-stale" } },
+    });
+  });
+
+  const createRequests: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/v1/config-sets")) {
+      createRequests.push(request.postData() ?? "");
+    }
+  });
+
+  await page.getByRole("button", { name: "Create config" }).click();
+
+  // 归一到 NEW_GROUP:Trigger 不能是空白,且 name/slug 字段必须回到可见状态,
+  // 否则 required 失效、submit 会把缺失字段读成字符串 "null" 提交上去
+  await expect(group).toContainText("New configuration group…");
+  await expect(page.getByLabel("Group name")).toBeVisible();
+  await expect(page.getByLabel("Group slug")).toBeVisible();
+
+  // 字段空着再点一次:必须被 required 挡住,一个创建请求都不许发出
+  await page.getByRole("button", { name: "Create config" }).click();
+  await page.waitForTimeout(300);
+  expect(createRequests).toEqual([]);
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
