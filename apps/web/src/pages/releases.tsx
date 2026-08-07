@@ -298,7 +298,10 @@ export function ReleasesPage() {
             </Field>
             <Button variant="outline" onClick={() => void compare()}>Compare</Button>
           </div>
-          {diff && (
+          {/* diff 只对当前选中的 After release 有意义。它被删除后 effectiveAfterId 归空,
+              残留的 diff 必须一起隐藏 —— 否则选择器显示 Choose… 而下方还在渲染
+              一个已不存在的 release 的对比结果。同时覆盖本页删除与其它标签页删除。 */}
+          {diff && effectiveAfterId && (
             <div className="grid gap-3">
               {diff.entries.map((entry) => {
                 const toneClass = entry.action === "add"

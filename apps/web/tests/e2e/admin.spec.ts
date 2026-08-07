@@ -506,3 +506,30 @@ test("falls back to a new group when the selected group disappears", async ({ pa
 
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
+
+test("hides a stale diff when the compared release disappears", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Releases/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  // 先再发一版:r1 不再是 current release,它的 Delete 才会解禁(disabled={current})。
+  // r1 是带 notes "E2E release" 的那条,新发布的一版没有 notes。
+  await page.getByRole("button", { name: "Validate & publish immutable release" }).click();
+  const r1Row = page.getByRole("listitem").filter({ hasText: "E2E release" });
+  const deleteR1 = r1Row.getByRole("button", { name: "Delete", exact: true });
+  await expect(deleteR1).toBeEnabled();
+
+  // 对比出一份属于 r1 的 diff
+  await chooseOption(page, "After", "r1");
+  await page.getByRole("button", { name: "Compare" }).click();
+  const diffEntry = page.getByText("claude-code/claude-home/settings.json", { exact: true });
+  await expect(diffEntry).toBeVisible();
+
+  // 真删 r1(走真实端点:DELETE → invalidate ["releases"] → refetch)
+  await deleteR1.click();
+
+  // After 选择器归空,残留的 diff 必须一起消失 —— 否则会在 Choose… 之下
+  // 继续渲染一个已不存在的 release 的对比结果
+  await expect(page.getByRole("combobox", { name: "After", exact: true })).toContainText("Choose…");
+  await expect(diffEntry).toHaveCount(0);
+});
