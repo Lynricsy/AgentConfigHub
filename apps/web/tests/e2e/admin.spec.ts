@@ -1,4 +1,23 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
+
+/**
+ * Radix Select 不是原生 <select>:先点开 trigger,再点 role=option。
+ * 用 role=combobox + exact 而非 getByLabel:getByLabel 是子串匹配,
+ * "Agent" 会同时命中 "By Agent" 那个 tabpanel。
+ */
+async function chooseOption(page: Page, label: string, option: string | RegExp): Promise<void> {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  await page.getByRole("option", { name: option, exact: typeof option === "string" }).click();
+}
+
+async function signIn(page: Page): Promise<void> {
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByLabel("Password").fill("correct-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/config-sets$/);
+}
 
 test("administers a configuration through release without retaining one-time secrets", async ({ page }) => {
   await page.goto("/");
@@ -12,22 +31,22 @@ test("administers a configuration through release without retaining one-time sec
   await expect(page).toHaveURL(/\/config-sets$/);
 
   await page.getByRole("button", { name: "New config" }).click();
-  await page.getByLabel("Configuration group").selectOption({ label: "New configuration group…" });
-  await page.getByLabel("Agent").selectOption("claude-code");
+  await chooseOption(page, "Configuration group", "New configuration group…");
+  await chooseOption(page, "Agent", "claude-code");
   await page.getByLabel("Group name").fill("E2E workstation");
   await page.getByLabel("Group slug").fill("e2e-workstation");
   await page.getByRole("button", { name: "Create config" }).click();
 
   await page.getByRole("button", { name: "New config" }).click();
-  await page.getByLabel("Configuration group").selectOption({ label: "E2E workstation · e2e-workstation" });
-  await page.getByLabel("Agent").selectOption("omp");
+  await chooseOption(page, "Configuration group", "E2E workstation · e2e-workstation");
+  await chooseOption(page, "Agent", "omp");
   await page.getByRole("button", { name: "Create config" }).click();
 
-  await expect(page.getByRole("button", { name: "By group" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("tab", { name: "By group" })).toHaveAttribute("aria-selected", "true");
   const groupSection = page.getByRole("region", { name: "E2E workstation" });
   await expect(groupSection.locator('a[href$="/configs/claude-code"]')).toBeVisible();
   await expect(groupSection.locator('a[href$="/configs/omp"]')).toBeVisible();
-  await page.getByRole("button", { name: "By Agent" }).click();
+  await page.getByRole("tab", { name: "By Agent" }).click();
   const claudeSection = page.getByRole("region", { name: "claude-code" });
   const ompSection = page.getByRole("region", { name: "omp" });
   await expect(claudeSection.getByRole("link", { name: /E2E workstation/ })).toBeVisible();
@@ -311,11 +330,9 @@ test("administers a configuration through release without retaining one-time sec
 
   await page.getByRole("link", { name: /Releases/ }).click();
   await expect(page.getByRole("heading", { name: "Releases", exact: true })).toBeVisible();
-  const configuration = page.getByLabel("Configuration group");
-  const configurationId = await configuration.locator("option").filter({ hasText: "E2E workstation" }).getAttribute("value");
-  expect(configurationId).toBeTruthy();
-  await configuration.selectOption(configurationId!);
-  await expect(configuration).toHaveValue(configurationId!);
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+  await expect(page.getByRole("combobox", { name: "Configuration group", exact: true }))
+    .toContainText("E2E workstation");
   await expect(page.getByLabel("Release notes")).toBeVisible();
   await page.getByLabel("Release notes").fill("E2E release");
   await page.getByRole("button", { name: "Validate & publish immutable release" }).click();
@@ -325,19 +342,14 @@ test("administers a configuration through release without retaining one-time sec
   await page.getByRole("link", { name: /Devices/ }).click();
   await page.getByLabel("Label").fill("E2E automation");
   await page.getByRole("button", { name: "Create token" }).click();
-  const token = await page.locator(".one-time-token code").textContent();
+  const token = await page.getByTestId("one-time-token").textContent();
   expect(token).toMatch(/^agch_auto_/);
   await page.getByRole("button", { name: "Clear" }).click();
   await expect(page.getByText(token!, { exact: true })).toHaveCount(0);
 });
 
-test("redesign visual invariants", async ({ page }) => {
-  // server already initialized by first test; navigate to login
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-  await page.getByLabel("Password").fill("correct-password");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/config-sets$/);
+test("keeps the theme and cleanliness invariants", async ({ page }) => {
+  await signIn(page);
 
   // six nav links each have visible text + one aria-hidden svg
   for (const label of ["Configuration", "Resources", "Credentials", "Releases", "Devices", "Settings"]) {
@@ -346,19 +358,81 @@ test("redesign visual invariants", async ({ page }) => {
     await expect(link.locator("svg[aria-hidden='true']")).toHaveCount(1);
   }
 
-  // three FX canvas layers are mounted
-  await expect(page.locator("canvas.fx-flow")).toHaveCount(1);
-  await expect(page.locator("canvas.fx-grain")).toHaveCount(1);
-
-  // Monaco switched to ach-void theme (background #080b0e)
-  await page.locator('a[href$="/configs/claude-code"]').first().click();
-  await page.waitForFunction(() => "monaco" in window);
-  await expect.poll(async () => await page.evaluate(
-    () => getComputedStyle(document.querySelector(".monaco-editor")!).backgroundColor,
-  )).toBe("rgb(8, 11, 14)");
-  // if rule lands on child: ".monaco-editor .monaco-editor-background"
+  // the decorative FX canvas layers are gone for good
+  await expect(page.locator("canvas.fx-flow")).toHaveCount(0);
+  await expect(page.locator("canvas.fx-grain")).toHaveCount(0);
 
   // zero emoji in page body
   const bodyText = await page.locator("body").innerText();
   expect(bodyText).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/u);
+
+  // Monaco follows the app theme; the toggle cycles system -> light -> dark
+  await page.locator('a[href$="/configs/claude-code"]').first().click();
+  await page.waitForFunction(() => "monaco" in window);
+  await expect(page.locator(".monaco-editor").first()).toBeVisible();
+  const editorBackground = async () => await page.evaluate(() => {
+    const editor = document.querySelector(".monaco-editor");
+    return editor ? getComputedStyle(editor).backgroundColor : "";
+  });
+  const toggle = page.getByRole("button", { name: "Toggle theme" });
+
+  await toggle.click();
+  await expect.poll(async () => await page.evaluate(() => localStorage.getItem("agch-theme"))).toBe("light");
+  expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(false);
+  const lightBackground = await editorBackground();
+
+  await toggle.click();
+  await expect.poll(async () => await page.evaluate(() => localStorage.getItem("agch-theme"))).toBe("dark");
+  expect(await page.evaluate(() => document.documentElement.classList.contains("dark"))).toBe(true);
+  await expect.poll(editorBackground).not.toBe(lightBackground);
+});
+
+test("approves a device through the CLI deep link", async ({ page, request }) => {
+  const created = await request.post("/api/v1/device-authorizations", {
+    data: { deviceName: "e2e-cli", cliVersion: "0.0.0" },
+  });
+  expect(created.status()).toBe(201);
+  const { userCode, deviceCode } = await created.json() as { userCode: string; deviceCode: string };
+  expect(userCode).toMatch(/^[A-HJ-NP-Z2-9]{8}$/);
+
+  // 未登录深链必须落到 /login,并在登录后带着 ?code= 回到审批页
+  await page.goto(`/devices/approve?code=${userCode}`);
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByLabel("Password").fill("correct-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(new RegExp(`/devices/approve\\?code=${userCode}$`));
+  await expect(page.getByLabel("Device code")).toHaveValue(userCode);
+
+  await page.getByRole("button", { name: "Approve device" }).click();
+  await expect(page.getByText(/Return to your terminal/)).toBeVisible();
+
+  const polled = await request.post("/api/v1/device-authorizations/token", { data: { deviceCode } });
+  expect(polled.status()).toBe(200);
+  const { token } = await polled.json() as { token: string };
+  expect(token).toMatch(/^agch_dev_/);
+});
+
+test("scrolls the workspace with the native wheel", async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 420 });
+  await signIn(page);
+  await page.getByRole("link", { name: /Settings/ }).click();
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+
+  const metrics = await page.evaluate(() => {
+    const main = document.querySelector("main")!;
+    return {
+      overflowY: getComputedStyle(main).overflowY,
+      scrollHeight: main.scrollHeight,
+      clientHeight: main.clientHeight,
+    };
+  });
+  expect(metrics.overflowY).toBe("auto");
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+
+  await page.mouse.move(600, 250);
+  await page.mouse.wheel(0, 400);
+  await expect.poll(async () => await page.evaluate(() => document.querySelector("main")!.scrollTop))
+    .toBeGreaterThan(0);
+  // 外层文档不参与滚动 —— 证明没有第二个滚动所有者
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
