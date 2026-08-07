@@ -1,26 +1,30 @@
-import Lenis from "lenis";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { NavLink, useLocation, useNavigate, useOutlet } from "react-router-dom";
+import { createContext, useContext, useMemo, useState } from "react";
+import type { ReactElement, ReactNode } from "react";
+import { Link, useLocation, useNavigate, useOutlet } from "react-router-dom";
 import {
   BookOpen,
   Cpu,
   KeyRound,
   Layers,
   LogOut,
+  Monitor,
+  Moon,
   PackageCheck,
-  Radio,
   Settings2,
   ShieldAlert,
+  Sun,
   Zap,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { ConfigSetList, api, mutateEmpty } from "./api.js";
-import { KineticTitle } from "./fx/kinetic-title.js";
-import { RouteTransition } from "./ui/page.js";
+import { cn } from "./lib/cn.js";
+import { useTheme } from "./theme.js";
+import type { Theme } from "./theme.js";
+import { Badge } from "./ui/badge.js";
+import { Button } from "./ui/button.js";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./ui/tooltip.js";
 
 /* ── Status context (signature unchanged — config-editor depends on it) ── */
 
@@ -48,34 +52,50 @@ const navigation: { to: string; label: string; icon: LucideIcon }[] = [
   { to: "/settings",     label: "Settings",      icon: Settings2 },
 ];
 
-/* ── Counter — flips number with spring animation ──────────────────────── */
+/* ── Theme toggle ──────────────────────────────────────────────────────── */
 
-function Counter({ value, className }: { value: string; className?: string | undefined }) {
+const themeCycle: Record<Theme, Theme> = { light: "dark", dark: "system", system: "light" };
+const themeIcon: Record<Theme, LucideIcon> = { light: Sun, dark: Moon, system: Monitor };
+
+function ThemeToggle(): ReactElement {
+  const { theme, setTheme } = useTheme();
+  const Icon = themeIcon[theme];
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      <motion.span
-        key={value}
-        className={className}
-        initial={{ y: -8, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 8, opacity: 0 }}
-        transition={{ duration: 0.18 }}
-      >
-        {value}
-      </motion.span>
-    </AnimatePresence>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Toggle theme"
+          onClick={() => setTheme(themeCycle[theme])}
+        >
+          <Icon aria-hidden="true" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Theme: {theme}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/* ── Status meter ──────────────────────────────────────────────────────── */
+
+function Meter({ label, children }: { label: string; children: ReactNode }): ReactElement {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground">{label}</span>
+      {children}
+    </div>
   );
 }
 
 /* ── AppShell ───────────────────────────────────────────────────────────── */
 
-export function AppShell() {
+export function AppShell(): ReactElement {
   const [blockingDiagnostics, setBlockingDiagnostics] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const outlet = useOutlet();
-  const reduceMotion = useReducedMotion();
 
   // ── data (unchanged) ────────────────────────────────────────────────────
   const configSets = useQuery({
@@ -97,123 +117,102 @@ export function AppShell() {
   });
   const status = useMemo(() => ({ blockingDiagnostics, setBlockingDiagnostics }), [blockingDiagnostics]);
 
-  // ── Lenis smooth scroll (migrated from main.tsx) ────────────────────────
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const wrapper = wrapperRef.current;
-    const content = contentRef.current;
-    if (!wrapper || !content || reduceMotion) return;
-    const lenis = new Lenis({ wrapper, content });
-    let frame = requestAnimationFrame(function tick(time: number) {
-      lenis.raf(time);
-      frame = requestAnimationFrame(tick);
-    });
-    return () => { cancelAnimationFrame(frame); lenis.destroy(); };
-  }, [reduceMotion]);
-
   return (
     <StatusContext.Provider value={status}>
-      <div className="app-shell">
+      <TooltipProvider delayDuration={250}>
+        <div className="grid h-screen grid-cols-[240px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden max-[900px]:grid-cols-[56px_1fr]">
 
-        {/* ── Rail ─────────────────────────────────────────────────────── */}
-        <aside className="rail">
-          <NavLink to="/config-sets" className="rail-brand">
-            <Zap size={20} strokeWidth={1.5} aria-hidden="true" />
-            <span>
-              <strong>AgentConfigHub</strong>
-              <small>Control plane</small>
-            </span>
-          </NavLink>
-
-          <nav className="rail-nav" aria-label="Main navigation">
-            {navigation.map((item, i) => {
-              const Icon = item.icon;
-              const idx = String(i + 1).padStart(2, "0");
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) => isActive ? "rail-link active" : "rail-link"}
-                >
-                  {({ isActive }) => <>
-                    {isActive && (
-                      <motion.span
-                        layoutId="rail-active"
-                        className="rail-active"
-                        transition={{ type: "spring", stiffness: 320, damping: 30 }}
-                      />
-                    )}
-                    <span className="rail-index" aria-hidden="true">{idx}</span>
-                    <Icon size={15} strokeWidth={1.5} aria-hidden="true" />
-                    <span className="rail-label">{item.label}</span>
-                  </>}
-                </NavLink>
-              );
-            })}
-          </nav>
-
-          <div className="rail-foot">
-            <div className="rail-foot-status">
-              <Radio size={13} strokeWidth={1.5} aria-hidden="true" />
-              <span>Server connected</span>
-            </div>
-            <button
-              className="btn btn-ghost"
-              onClick={() => logout.mutate()}
-              disabled={logout.isPending}
+          {/* ── Rail ─────────────────────────────────────────────────────── */}
+          <aside className="flex min-h-0 flex-col border-r border-border bg-card">
+            <Link
+              to="/config-sets"
+              className="flex h-14 shrink-0 items-center gap-2.5 border-b border-border px-4 max-[900px]:justify-center max-[900px]:px-0"
             >
-              <LogOut size={13} strokeWidth={1.5} aria-hidden="true" />
-              Sign out
-            </button>
-          </div>
-        </aside>
+              <Zap className="size-5 shrink-0 text-primary" strokeWidth={1.75} aria-hidden="true" />
+              <span className="flex flex-col leading-tight max-[900px]:hidden">
+                <strong className="text-sm font-semibold tracking-tight">AgentConfigHub</strong>
+                <small className="text-[0.6875rem] text-muted-foreground">Control plane</small>
+              </span>
+            </Link>
 
-        {/* ── Workspace ────────────────────────────────────────────────── */}
-        <section className="workspace">
+            <nav className="scrollbar-thin flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2" aria-label="Main navigation">
+              {navigation.map(({ to, label, icon: Icon }) => {
+                // 自算 active:Radix Slot 会把 NavLink 的函数式 className 拼成字符串,
+                // 因此这里必须给出普通字符串 class。
+                const active = location.pathname === to || location.pathname.startsWith(`${to}/`);
+                return (
+                  <Tooltip key={to}>
+                    <TooltipTrigger asChild>
+                      <Link
+                        to={to}
+                        aria-current={active ? "page" : undefined}
+                        className={cn(
+                          "flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors duration-150",
+                          "max-[900px]:justify-center max-[900px]:px-0",
+                          active
+                            ? "bg-primary/12 font-medium text-primary"
+                            : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        )}
+                      >
+                        <Icon className="size-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+                        <span className="truncate max-[900px]:hidden">{label}</span>
+                      </Link>
+                    </TooltipTrigger>
+                    {/* 仅折叠态需要提示,宽屏用 CSS 隐藏,避免额外的尺寸监听 */}
+                    <TooltipContent side="right" className="min-[901px]:hidden">{label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </nav>
 
-          {/* ── Telemetry bar ──────────────────────────────────────────── */}
-          <header className="telemetry">
-            <div className="telemetry-meters">
-              <div className="telemetry-meter">
-                <label>DRAFTS</label>
-                <span className="value" style={dirtyCount > 0 ? { color: "var(--warn)" } : undefined}>
-                  <Counter value={String(dirtyCount)} />
-                </span>
-              </div>
-              <div className="telemetry-meter">
-                <label>RELEASE</label>
-                <span className="value">
-                  <Counter value={statusConfig?.currentReleaseNumber ? `r${statusConfig.currentReleaseNumber}` : "—"} />
-                </span>
-              </div>
-              <div className="telemetry-meter">
-                <label>BLOCKING</label>
-                <span className="value" style={blockingDiagnostics > 0 ? { color: "var(--danger)" } : undefined}>
-                  {blockingDiagnostics > 0 && <ShieldAlert size={11} strokeWidth={1.5} aria-hidden="true" />}
-                  <Counter value={String(blockingDiagnostics)} />
-                </span>
-              </div>
+            <div className="flex shrink-0 items-center gap-1 border-t border-border p-2 max-[900px]:flex-col">
+              <ThemeToggle />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className="flex-1 justify-start max-[900px]:size-9 max-[900px]:flex-none max-[900px]:justify-center max-[900px]:px-0"
+                    onClick={() => logout.mutate()}
+                    disabled={logout.isPending}
+                  >
+                    <LogOut aria-hidden="true" />
+                    <span className="max-[900px]:hidden">Sign out</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="min-[901px]:hidden">Sign out</TooltipContent>
+              </Tooltip>
             </div>
-            <KineticTitle
-              text={statusConfig?.name ?? "Administration"}
-              className="mono"
-            />
-          </header>
+          </aside>
 
-          {/* ── Route content + Lenis wrapper ──────────────────────────── */}
-          <div className="route-content" ref={wrapperRef}>
-            <div className="route-scroll-content" ref={contentRef}>
-              <AnimatePresence mode="wait" initial={false}>
-                <RouteTransition key={location.pathname}>
-                  {outlet}
-                </RouteTransition>
-              </AnimatePresence>
-            </div>
-          </div>
-        </section>
+          {/* ── Workspace ────────────────────────────────────────────────── */}
+          <section className="flex min-h-0 min-w-0 flex-col">
+            <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-card px-5">
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+                <Meter label="Drafts">
+                  <Badge variant={dirtyCount > 0 ? "warning" : "outline"}>{dirtyCount}</Badge>
+                </Meter>
+                <Meter label="Release">
+                  <Badge variant="outline" className="font-mono">
+                    {statusConfig?.currentReleaseNumber ? `r${statusConfig.currentReleaseNumber}` : "—"}
+                  </Badge>
+                </Meter>
+                <Meter label="Blocking">
+                  <Badge variant={blockingDiagnostics > 0 ? "destructive" : "outline"}>
+                    {blockingDiagnostics > 0 && <ShieldAlert aria-hidden="true" />}
+                    {blockingDiagnostics}
+                  </Badge>
+                </Meter>
+              </div>
+              <p className="truncate font-mono text-xs text-muted-foreground">
+                {statusConfig?.name ?? "Administration"}
+              </p>
+            </header>
 
-      </div>
+            <main className="scrollbar-thin min-h-0 flex-1 overflow-y-auto">{outlet}</main>
+          </section>
+
+        </div>
+      </TooltipProvider>
     </StatusContext.Provider>
   );
 }

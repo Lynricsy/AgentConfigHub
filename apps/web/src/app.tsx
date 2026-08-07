@@ -1,7 +1,6 @@
+import type { ReactElement } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import { FlowField } from "./fx/flow-field.js";
-import { Grain } from "./fx/grain.js";
 import { AuthGate, LoginPage, SetupPage } from "./auth.js";
 import { ConfigEditorPage } from "./pages/config-editor.js";
 import { ConfigSetListPage } from "./pages/config-set-list.js";
@@ -11,12 +10,11 @@ import { ReleasesPage } from "./pages/releases.js";
 import { SettingsPage } from "./pages/settings.js";
 import { ResourcesPage } from "./pages/resources.js";
 import { AppShell } from "./shell.js";
+import { Toaster } from "./ui/sonner.js";
 
-export function App() {
+export function App(): ReactElement {
   return <>
-    <FlowField />
-    <div className="fx-vignette" aria-hidden="true" />
-    <Grain />
+    <Toaster />
     <Routes>
       <Route path="/setup" element={<SetupPage />} />
       <Route path="/login" element={<LoginPage />} />

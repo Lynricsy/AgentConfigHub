@@ -68,7 +68,10 @@ export function AuthGate({ children }: { children: ReactNode }): ReactNode {
     return <Loading label="Checking control plane…" />;
   }
   if (setup.data?.required) return <Navigate to="/setup" replace />;
-  if (!session.data) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (!session.data) {
+    // 带上 search,否则 CLI 的 /devices/approve?code=… 深链在登录后会丢失 code
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  }
   return children;
 }
 
