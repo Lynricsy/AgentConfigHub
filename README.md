@@ -35,7 +35,7 @@ docker compose -f compose.example.yml up -d
 The example pulls `ghcr.io/lynricsy/agentconfighub:edge` and binds the service to `127.0.0.1:3000` by default. Override `AGENT_CONFIG_HUB_BIND_ADDRESS` only when the service must listen beyond the local reverse proxy. `edge` is mutable; reproducible production deployments should set:
 
 ```bash
-export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:a261076e14f8fe6d6df0b64dacea74c104e0288d41128afad17d0f47f3784e51'
+export AGENT_CONFIG_HUB_IMAGE='ghcr.io/lynricsy/agentconfighub@sha256:6afc2d2bd314b77c94aaeea926405998b1cdd8a9a8cf6cedce181fe70937747b'
 ```
 
 The one-shot `initialize-data` service prepares `${AGENT_CONFIG_HUB_DATA_DIR:-./data}` for the non-root runtime UID `10001`; the application container then runs read-only with all Linux capabilities dropped. Preserve both the data directory and master key. Losing the key makes encrypted credentials and blobs unrecoverable.
