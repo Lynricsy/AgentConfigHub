@@ -754,3 +754,24 @@ test("serializes release mutations and never deletes twice", async ({ page }) =>
 
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
+
+test("allows consecutive file-tree mutations on the same skill", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Resources/ }).click();
+  await page.getByRole("button", { name: /E2E skill e2e-skill/ }).click();
+
+  // 连续两次不同的文件树变更都必须成功。同步锁若忘记复位,第二次会静默返回 false,
+  // 界面没有任何错误、文件也不会出现 —— 正是这种静默失效最难发现。
+  for (const path of ["assets/first.txt", "assets/second.txt"]) {
+    await page.getByRole("button", { name: "New file" }).click();
+    await page.getByLabel("Relative path").fill(path);
+    await page.getByRole("button", { name: "Create file" }).click();
+    await expect(page.getByRole("button", { name: path })).toBeVisible();
+  }
+
+  // 两个文件都在,且没有留下错误提示
+  await expect(page.getByRole("button", { name: "assets/first.txt" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "assets/second.txt" })).toBeVisible();
+  // Monaco 自己会挂空的 role=alert 活动区,所以只看非空的告警
+  await expect(page.locator("[role=alert]:not(:empty)")).toHaveCount(0);
+});

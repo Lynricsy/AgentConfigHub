@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Ban, Copy, KeyRound, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -34,6 +34,10 @@ export function DevicesPage() {
   const [error, setError] = useState<unknown>();
   const [pending, setPending] = useState(false);
   const [revokeTokenId, setRevokeTokenId] = useState<string>();
+  // 同步锁:pending 是 state,下一次渲染才会让按钮 disabled;同一 tick 内的连点会
+  // 重复提交。createAutomation 重复提交会多铸一个 token 而界面只展示后一个,
+  // 前一个用户永远看不到却真实存在;approve 重复提交则会在设备已获批时报失败。
+  const mutating = useRef(false);
   const tokens = useQuery({ queryKey: ["tokens"], queryFn: () => api("/api/v1/tokens", TokenList) });
   useEffect(() => {
     if (!oneTimeToken) return;
@@ -44,6 +48,8 @@ export function DevicesPage() {
 
   const approve = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (mutating.current) return;
+    mutating.current = true;
     const form = event.currentTarget;
     const userCode = String(new FormData(form).get("userCode"));
     form.reset(); setPending(true); setError(undefined);
@@ -54,11 +60,14 @@ export function DevicesPage() {
       setError(cause);
       toast.error("Failed to approve device");
     } finally {
+      mutating.current = false;
       setPending(false);
     }
   };
   const createAutomation = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (mutating.current) return;
+    mutating.current = true;
     const form = event.currentTarget;
     const label = String(new FormData(form).get("label"));
     form.reset(); setPending(true); setError(undefined);
@@ -71,10 +80,13 @@ export function DevicesPage() {
       setError(cause);
       toast.error("Failed to create automation token");
     } finally {
+      mutating.current = false;
       setPending(false);
     }
   };
   const revoke = async (id: string) => {
+    if (mutating.current) return;
+    mutating.current = true;
     try {
       await mutateEmpty(`/api/v1/tokens/${id}`, {}, { method: "DELETE" });
       await queryClient.invalidateQueries({ queryKey: ["tokens"] });
@@ -83,6 +95,8 @@ export function DevicesPage() {
     } catch (cause) {
       setError(cause);
       toast.error("Failed to revoke token");
+    } finally {
+      mutating.current = false;
     }
   };
 

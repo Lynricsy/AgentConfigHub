@@ -536,12 +536,17 @@ function ConfigResourceBindings({
 }) {
   const queryClient = useQueryClient();
   const [pendingResourceId, setPendingResourceId] = useState<string>();
+  // 同步锁:pendingResourceId 是 state,同一 tick 内连点(或快速勾选两个资源)会带着
+  // 同一个 draftRevision 发出两次绑定请求,第二次必然 REVISION_CONFLICT
+  const bindingRef = useRef(false);
   const [error, setError] = useState<unknown>();
   const resources = useQuery({
     queryKey: ["resources"],
     queryFn: () => api("/api/v1/resources", ResourceList),
   });
   const updateBinding = async (resourceId: string, selected: boolean, sortOrder: number) => {
+    if (bindingRef.current) return;
+    bindingRef.current = true;
     setPendingResourceId(resourceId);
     setError(undefined);
     try {
@@ -563,6 +568,7 @@ function ConfigResourceBindings({
         await queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] });
       }
     } finally {
+      bindingRef.current = false;
       setPendingResourceId(undefined);
     }
   };

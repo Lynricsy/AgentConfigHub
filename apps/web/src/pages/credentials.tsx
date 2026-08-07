@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { Copy, Eye, RotateCw } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +42,8 @@ export function CredentialsPage() {
   const [configSetId, setConfigSetId] = useState("");
   const [addSlotCredentialId, setAddSlotCredentialId] = useState(NONE);
   const [pendingAction, setPendingAction] = useState<"create" | "rotate" | "reveal">();
+  // 同步锁:所有敏感变更共用,防止同一 tick 内的重复提交
+  const mutating = useRef(false);
   // 三个动作各自一个错误槽。共用一个槽时,虽然渲染处按 action 过滤,但**写入**会互相
   // 覆盖:reveal 的失败落地就会把 create 表单里正在显示的失败挤掉(reveal 按钮并不会
   // 因为 create 在途而 disabled,两者可以重叠)。
@@ -77,6 +79,10 @@ export function CredentialsPage() {
     id?: string,
   ) => {
     event.preventDefault();
+    // pendingAction 是 state,同一 tick 的连点挡不住 —— 重复提交会多建一条 credential
+    // 或多铸一个修订版本
+    if (mutating.current) return;
+    mutating.current = true;
     const form = event.currentTarget;
     const data = new FormData(form);
     const input = action === "create"
@@ -117,6 +123,7 @@ export function CredentialsPage() {
           ? "Could not update credential"
           : "Could not reveal credential");
     } finally {
+      mutating.current = false;
       setPendingAction(undefined);
     }
   };

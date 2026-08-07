@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { HardDrive, Lock, Shield } from "lucide-react";
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -34,11 +34,15 @@ export function SettingsPage() {
   const [gcPending, setGcPending] = useState(false);
   const [gcResult, setGcResult] = useState<z.infer<typeof GcResult>>();
   const [gcError, setGcError] = useState<unknown>();
+  // 同步锁:pending/gcPending 都是 state,同一 tick 的连点挡不住
+  const mutating = useRef(false);
   const storage = useQuery({
     queryKey: ["storage"],
     queryFn: () => api("/api/v1/storage", StorageStats),
   });
   const runGc = async () => {
+    if (mutating.current) return;
+    mutating.current = true;
     setGcPending(true); setGcError(undefined);
     try {
       const result = await mutate("/api/v1/storage/gc", GcResult, {});
@@ -49,10 +53,13 @@ export function SettingsPage() {
       setGcError(cause);
       toast.error("Blob GC failed");
     }
-    finally { setGcPending(false); }
+    finally { mutating.current = false; setGcPending(false); }
   };
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    // 重复提交的第二次会因为旧密码已失效而失败,在密码其实已改成功时报错
+    if (mutating.current) return;
+    mutating.current = true;
     const form = event.currentTarget;
     const data = new FormData(form);
     const input = {
@@ -70,7 +77,7 @@ export function SettingsPage() {
       setError(cause);
       toast.error("Password change failed");
     }
-    finally { setPending(false); }
+    finally { mutating.current = false; setPending(false); }
   };
   return (
     <Page

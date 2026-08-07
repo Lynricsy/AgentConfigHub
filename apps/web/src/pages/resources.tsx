@@ -2,7 +2,7 @@ import Editor from "@monaco-editor/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileCode, FileText, LoaderCircle, Package, Plus, Save, Trash2 } from "lucide-react";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -90,6 +90,7 @@ function ResourceFileEditor({
   const [text, setText] = useState("");
   const [savedText, setSavedText] = useState("");
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [error, setError] = useState<unknown>();
   const [conflict, setConflict] = useState<{
     resource: Resource;
@@ -107,6 +108,9 @@ function ResourceFileEditor({
     baseFiles: ResourceFile[] = files,
   ) => {
     if (text === savedText && conflict === undefined) return;
+    // saving 是 state,同一 tick 的重复保存会多铸一个修订版本
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(undefined);
     try {
@@ -164,6 +168,7 @@ function ResourceFileEditor({
         toast.error("Could not save revision");
       }
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -280,6 +285,8 @@ export function ResourcesPage() {
   const [addingFile, setAddingFile] = useState(false);
   const [pending, setPending] = useState(false);
   const [actionError, setActionError] = useState<unknown>();
+  // 同步锁:pending 是 state,同一 tick 的连点会重复创建资源/重复改文件树
+  const mutating = useRef(false);
   const resources = useQuery({
     queryKey: ["resources"],
     queryFn: () => api("/api/v1/resources", ResourceList),
@@ -312,7 +319,8 @@ export function ResourcesPage() {
 
   const createResource = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!creatingKind) return;
+    if (!creatingKind || mutating.current) return;
+    mutating.current = true;
     const form = new FormData(event.currentTarget);
     const name = String(form.get("name")).trim();
     const slug = String(form.get("slug")).trim();
@@ -348,6 +356,7 @@ export function ResourcesPage() {
     } catch (cause) {
       setActionError(cause);
     } finally {
+      mutating.current = false;
       setPending(false);
     }
   };
@@ -356,6 +365,8 @@ export function ResourcesPage() {
     resource: Resource,
     files: Array<Pick<ResourceFile, "relativePath" | "blobSha256" | "mediaType" | "executable">>,
   ): Promise<boolean> => {
+    if (mutating.current) return false;
+    mutating.current = true;
     setPending(true);
     setActionError(undefined);
     try {
@@ -375,6 +386,7 @@ export function ResourcesPage() {
       setActionError(cause);
       return false;
     } finally {
+      mutating.current = false;
       setPending(false);
     }
   };
