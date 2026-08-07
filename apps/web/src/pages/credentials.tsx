@@ -44,6 +44,9 @@ export function CredentialsPage() {
   const [pendingAction, setPendingAction] = useState<"create" | "rotate" | "reveal">();
   // 同步锁:所有敏感变更共用,防止同一 tick 内的重复提交
   const mutating = useRef(false);
+  // 绑定操作自己的锁与禁用态,与敏感表单的锁相互独立
+  const bindingRef = useRef(false);
+  const [bindPending, setBindPending] = useState(false);
   // 三个动作各自一个错误槽。共用一个槽时,虽然渲染处按 action 过滤,但**写入**会互相
   // 覆盖:reveal 的失败落地就会把 create 表单里正在显示的失败挤掉(reveal 按钮并不会
   // 因为 create 在途而 disabled,两者可以重叠)。
@@ -129,7 +132,12 @@ export function CredentialsPage() {
   };
 
   const bind = async (slotName: string, credentialId: string | null, agentId?: string) => {
-    if (!config.data) return;
+    // 独立的锁,不复用敏感表单那把 —— 复用会让"创建在途时改绑定"变成无提示的死点。
+    // 三个入口(Add slot、默认值、按 agent 覆盖)共用同一个 draftRevision,
+    // 连续两次绑定的后一次必然 REVISION_CONFLICT,改动会静默丢失。
+    if (!config.data || bindingRef.current) return;
+    bindingRef.current = true;
+    setBindPending(true);
     const suffix = agentId ? `/agents/${agentId}` : "";
     try {
       await mutate(
@@ -145,6 +153,9 @@ export function CredentialsPage() {
       toast.success("Credential binding updated");
     } catch {
       toast.error("Could not update credential binding");
+    } finally {
+      bindingRef.current = false;
+      setBindPending(false);
     }
   };
   const closeReveal = () => {
@@ -295,7 +306,7 @@ export function CredentialsPage() {
                 placeholder="MODEL_API_KEY"
                 required
               />
-              <Select value={addSlotCredentialId} onValueChange={setAddSlotCredentialId}>
+              <Select value={addSlotCredentialId} onValueChange={setAddSlotCredentialId} disabled={bindPending}>
                 <SelectTrigger aria-label="Credential">
                   <SelectValue />
                 </SelectTrigger>
@@ -308,7 +319,7 @@ export function CredentialsPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" type="submit">Add slot</Button>
+              <Button variant="outline" type="submit" disabled={bindPending}>Add slot</Button>
             </form>
             <div className="overflow-x-auto">
               <Table>
@@ -327,6 +338,7 @@ export function CredentialsPage() {
                       <TableCell className="min-w-44 font-mono text-xs font-semibold">{slot.name}</TableCell>
                       <TableCell className="min-w-48">
                         <Select
+                          disabled={bindPending}
                           value={slot.defaultCredentialId ?? NONE}
                           onValueChange={(value) => void bind(slot.name, value === NONE ? null : value)}
                         >
@@ -350,6 +362,7 @@ export function CredentialsPage() {
                         return (
                           <TableCell className="min-w-48" key={agent}>
                             <Select
+                              disabled={bindPending}
                               value={override?.credentialId ?? INHERIT}
                               onValueChange={(value) => void bind(
                                 slot.name,

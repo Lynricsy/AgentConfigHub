@@ -775,3 +775,25 @@ test("allows consecutive file-tree mutations on the same skill", async ({ page }
   // Monaco 自己会挂空的 role=alert 活动区,所以只看非空的告警
   await expect(page.locator("[role=alert]:not(:empty)")).toHaveCount(0);
 });
+
+test("applies two consecutive secret-slot bindings", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Credentials/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  await page.getByPlaceholder("MODEL_API_KEY").fill("BIND_SLOT_A");
+  await chooseOption(page, "Credential", "Alpha key");
+  await page.getByRole("button", { name: "Add slot" }).click();
+  await expect(page.getByRole("combobox", { name: "BIND_SLOT_A default", exact: true }))
+    .toContainText("Alpha key");
+
+  // 紧接着改第二个绑定:两次都带同一个 draftRevision 时,后一次会 REVISION_CONFLICT
+  // 而改动静默丢失。锁 + 禁用态要保证第二次拿到的是刷新后的 revision。
+  await chooseOption(page, "BIND_SLOT_A default", "Beta key");
+  await expect(page.getByRole("combobox", { name: "BIND_SLOT_A default", exact: true }))
+    .toContainText("Beta key");
+
+  await chooseOption(page, "BIND_SLOT_A for claude-code", "Alpha key");
+  await expect(page.getByRole("combobox", { name: "BIND_SLOT_A for claude-code", exact: true }))
+    .toContainText("Alpha key");
+});
