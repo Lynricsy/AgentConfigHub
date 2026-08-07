@@ -42,11 +42,12 @@ export function CredentialsPage() {
   const [configSetId, setConfigSetId] = useState("");
   const [addSlotCredentialId, setAddSlotCredentialId] = useState(NONE);
   const [pendingAction, setPendingAction] = useState<"create" | "rotate" | "reveal">();
-  const [actionError, setActionError] = useState<{
-    action: "create" | "rotate" | "reveal";
-    id: string | undefined;
-    error: unknown;
-  }>();
+  // 三个动作各自一个错误槽。共用一个槽时,虽然渲染处按 action 过滤,但**写入**会互相
+  // 覆盖:reveal 的失败落地就会把 create 表单里正在显示的失败挤掉(reveal 按钮并不会
+  // 因为 create 在途而 disabled,两者可以重叠)。
+  const [createError, setCreateError] = useState<unknown>();
+  const [rotateError, setRotateError] = useState<{ id: string; error: unknown }>();
+  const [revealError, setRevealError] = useState<{ id: string; error: unknown }>();
   const credentials = useQuery({ queryKey: ["credentials"], queryFn: () => api("/api/v1/credentials", CredentialList) });
   const configSets = useQuery({ queryKey: ["config-sets"], queryFn: () => api("/api/v1/config-sets", ConfigSetList) });
   // 选中的配置组可能已被别处删除;列表加载完成后若不再包含它,就退回未选择态,
@@ -85,7 +86,9 @@ export function CredentialsPage() {
         : { password: String(data.get("password")) };
     form.reset();
     setPendingAction(action);
-    setActionError(undefined);
+    if (action === "create") setCreateError(undefined);
+    else if (action === "rotate" && id) setRotateError(undefined);
+    else if (action === "reveal" && id) setRevealError(undefined);
     try {
       if (action === "create") {
         await mutate("/api/v1/credentials", CredentialResult, input);
@@ -105,7 +108,9 @@ export function CredentialsPage() {
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
       ]);
     } catch (error) {
-      setActionError({ action, id, error });
+      if (action === "create") setCreateError(error);
+      else if (action === "rotate" && id) setRotateError({ id, error });
+      else if (action === "reveal" && id) setRevealError({ id, error });
       toast.error(action === "create"
         ? "Could not create credential"
         : action === "rotate"
@@ -138,7 +143,7 @@ export function CredentialsPage() {
   const closeReveal = () => {
     setRevealingId(undefined);
     setRevealed(undefined);
-    setActionError(undefined);
+    setRevealError(undefined);
   };
 
   return (
@@ -170,7 +175,7 @@ export function CredentialsPage() {
               <Button disabled={pendingAction === "create"} type="submit">
                 Encrypt & save
               </Button>
-              {actionError?.action === "create" && <ErrorNotice error={actionError.error} />}
+              {createError !== undefined && <ErrorNotice error={createError} />}
             </div>
           </form>
         </Card>
@@ -226,9 +231,8 @@ export function CredentialsPage() {
                 <Field label="New value">
                   <Input name="value" type="password" required autoFocus />
                 </Field>
-                {actionError?.action === "rotate"
-                  && actionError.id === credential.id
-                  && <ErrorNotice error={actionError.error} />}
+                {rotateError?.id === credential.id
+                  && <ErrorNotice error={rotateError.error} />}
                 <Button
                   variant="outline"
                   disabled={pendingAction === "rotate"}
@@ -394,8 +398,8 @@ export function CredentialsPage() {
               <Field label="Administrator password">
                 <Input name="password" type="password" required autoFocus />
               </Field>
-              {actionError?.action === "reveal" && actionError.id === revealingId && (
-                <ErrorNotice error={actionError.error} />
+              {revealError?.id === revealingId && (
+                <ErrorNotice error={revealError.error} />
               )}
               <DialogFooter>
                 <Button disabled={pendingAction === "reveal"} type="submit">

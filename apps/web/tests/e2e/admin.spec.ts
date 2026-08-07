@@ -595,6 +595,50 @@ test("does not surface an error from a compare abandoned by a selection change",
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
+test("keeps a publish error visible when an in-flight compare fails afterwards", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Releases/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  // 比较请求慢慢失败;发布请求立刻失败
+  await page.route("**/api/v1/releases/*/diff**", async (route) => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 2000);
+    await promise;
+    await route.fulfill({
+      status: 500,
+      json: { error: { code: "INTERNAL", message: "Compare blew up late.", requestId: "req-late-diff" } },
+    });
+  });
+  await page.route("**/api/v1/config-sets/*/releases", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 409,
+      json: { error: { code: "REVISION_CONFLICT", message: "Publish blocked by e2e.", requestId: "req-publish" } },
+    });
+  });
+
+  // Compare 在途 → Publish 失败 → 旧 Compare 随后失败。
+  // 断言只看内联 ErrorNotice(role=alert),避免与 sonner toast 的同文案撞上
+  const publishNotice = page.getByRole("alert").filter({ hasText: "Publish blocked by e2e" });
+  const compareNotice = page.getByRole("alert").filter({ hasText: "Compare blew up late" });
+  await chooseOption(page, "After", "r1");
+  const compareFailed = page.waitForResponse((response) => response.url().includes("/diff"));
+  await page.getByRole("button", { name: "Compare" }).click();
+  await page.getByRole("button", { name: "Validate & publish immutable release" }).click();
+  await expect(publishNotice).toBeVisible();
+
+  // 比较的失败不能顶掉发布的失败 —— 两者属于不同动作,各自独立
+  await compareFailed;
+  await expect(compareNotice).toBeVisible();
+  await expect(publishNotice).toBeVisible();
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("hides a stale diff when the compared release disappears", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: /Releases/ }).click();

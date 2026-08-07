@@ -89,11 +89,15 @@ export function ReleasesPage() {
   const [configSetId, setConfigSetId] = useState("");
   const [notes, setNotes] = useState("");
   const [diagnostics, setDiagnostics] = useState<DiagnosticItem[] | null>(null);
-  // 比较失败的错误要记住它属于哪一对选择:请求在途时用户只是改了选择(并未再点
-  // Compare),序号不会前进,旧请求的失败仍会被展示到新选择上。
-  const [actionError, setActionError] = useState<{
+  // 发布/回滚/删除共用一个错误槽
+  const [actionError, setActionError] = useState<unknown>();
+  // 比较的错误单独存,且记住它属于哪一对选择。两个原因:
+  // 1. 请求在途时用户只是改了选择(未再点 Compare),序号不前进,旧失败会贴到新选择上
+  // 2. 与其它动作共用一个槽时,在途的比较失败会覆盖掉刚刚发布失败的提示
+  const [compareError, setCompareError] = useState<{
+    beforeId: string;
+    afterId: string;
     error: unknown;
-    compare?: { beforeId: string; afterId: string };
   }>();
   const [pending, setPending] = useState(false);
   const [beforeId, setBeforeId] = useState("");
@@ -133,12 +137,10 @@ export function ReleasesPage() {
     && diff.beforeId === effectiveBeforeId
     ? diff.result
     : undefined;
-  // 带 compare 标记的错误只在选择未变时展示;其余动作(发布/回滚/删除)的错误照旧
-  const visibleActionError = actionError !== undefined
-    && (actionError.compare === undefined
-      || (actionError.compare.beforeId === effectiveBeforeId
-        && actionError.compare.afterId === effectiveAfterId))
-    ? actionError.error
+  const visibleCompareError = compareError !== undefined
+    && compareError.beforeId === effectiveBeforeId
+    && compareError.afterId === effectiveAfterId
+    ? compareError.error
     : undefined;
 
   const publish = async () => {
@@ -154,7 +156,7 @@ export function ReleasesPage() {
       ]);
       toast.success("Release published");
     } catch (error) {
-      setActionError({ error });
+      setActionError(error);
       if (error instanceof ApiClientError) {
         const parsed = Diagnostic.array().safeParse(error.details);
         if (parsed.success) setDiagnostics(parsed.data);
@@ -172,20 +174,21 @@ export function ReleasesPage() {
         queryClient.invalidateQueries({ queryKey: ["config-set", configSetId] }),
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
       ]);
-    } catch (error) { setActionError({ error }); }
+    } catch (error) { setActionError(error); }
     finally { setPending(false); }
   };
   const remove = async (releaseId: string) => {
     try {
       await mutateEmpty(`/api/v1/config-sets/${configSetId}/releases/${releaseId}`, {}, { method: "DELETE" });
       await queryClient.invalidateQueries({ queryKey: ["releases", configSetId] });
-    } catch (error) { setActionError({ error }); }
+    } catch (error) { setActionError(error); }
   };
   const compare = async () => {
     if (!effectiveAfterId) return;
     const requestId = ++compareRequest.current;
     const requestedBefore = effectiveBeforeId;
     const requestedAfter = effectiveAfterId;
+    setCompareError(undefined);
     try {
       const result = await api(
         `/api/v1/releases/${requestedAfter}/diff${requestedBefore ? `?before=${requestedBefore}` : ""}`,
@@ -197,7 +200,7 @@ export function ReleasesPage() {
     }
     catch (error) {
       if (compareRequest.current !== requestId) return;
-      setActionError({ error, compare: { beforeId: requestedBefore, afterId: requestedAfter } });
+      setCompareError({ beforeId: requestedBefore, afterId: requestedAfter, error });
     }
   };
   const blocking = diagnostics?.filter(({ severity }) => severity === "error").length ?? 0;
@@ -262,7 +265,8 @@ export function ReleasesPage() {
         </Card>
       )}
 
-      {visibleActionError !== undefined && <ErrorNotice error={visibleActionError} />}
+      {actionError !== undefined && <ErrorNotice error={actionError} />}
+      {visibleCompareError !== undefined && <ErrorNotice error={visibleCompareError} />}
 
       {diagnostics && (
         <Card>
