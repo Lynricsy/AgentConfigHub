@@ -1,4 +1,3 @@
-import { motion, useIsPresent } from "motion/react";
 import type { ReactElement, ReactNode } from "react";
 
 export function Page({
@@ -23,21 +22,5 @@ export function Page({
       </header>
       <div className="flex flex-col gap-5">{children}</div>
     </div>
-  );
-}
-
-/** 过渡壳,Step 3 重写 shell 时删除。 */
-export function RouteTransition({ children }: { children: ReactNode }): ReactElement {
-  const isPresent = useIsPresent();
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      style={{ height: "100%" }}
-      inert={isPresent ? undefined : true}
-      aria-hidden={isPresent ? undefined : true}
-    >
-      {children}
-    </motion.div>
   );
 }
