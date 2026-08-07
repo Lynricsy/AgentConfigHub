@@ -507,6 +507,64 @@ test("falls back to a new group when the selected group disappears", async ({ pa
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 
+test("drops the diff when the compare selection changes", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Releases/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  // 需要第二个 release 才能测切换(publish 没有"无变更"守卫,可重复发布)
+  await page.getByRole("button", { name: "Validate & publish immutable release" }).click();
+  // 新发布的这一版没有 notes,时间线里渲染成 "Release without notes",不与外壳的 r2 徽标撞
+  await expect(page.getByRole("listitem").filter({ hasText: "Release without notes" })).toHaveCount(1);
+
+  await chooseOption(page, "After", "r1");
+  await page.getByRole("button", { name: "Compare" }).click();
+  const diffEntry = page.getByText("claude-code/claude-home/settings.json", { exact: true });
+  await expect(diffEntry).toBeVisible();
+
+  // 只切换选择、不重新对比:展示的 diff 是为 r1 算的,与当前选择不再一致,必须消失
+  await chooseOption(page, "After", "r2");
+  await expect(diffEntry).toHaveCount(0);
+
+  // 改 Before 同理
+  await page.getByRole("button", { name: "Compare" }).click();
+  await expect(diffEntry).toBeVisible();
+  await chooseOption(page, "Before", "r1");
+  await expect(diffEntry).toHaveCount(0);
+});
+
+test("ignores a slow diff response superseded by a newer compare", async ({ page }) => {
+  await signIn(page);
+  await page.getByRole("link", { name: /Releases/ }).click();
+  await chooseOption(page, "Configuration group", /E2E workstation/);
+
+  // 只延迟"没有 before= 参数"的那次请求,也就是下面的第一次比较
+  await page.route("**/api/v1/releases/*/diff**", async (route) => {
+    if (!route.request().url().includes("before=")) {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, 2500);
+      await promise;
+    }
+    await route.continue();
+  });
+
+  // 第一次:Empty baseline → r1,响应很慢,结果非空
+  await chooseOption(page, "After", "r1");
+  await page.getByRole("button", { name: "Compare" }).click();
+
+  // 第二次:r2 → r2,响应立刻返回且结果必然为空(同一个 release 自比)
+  await chooseOption(page, "Before", "r2");
+  await chooseOption(page, "After", "r2");
+  await page.getByRole("button", { name: "Compare" }).click();
+
+  // 等慢响应落地后再断言:它属于已被取代的请求,既不能回写也不能渲染
+  await page.waitForTimeout(3500);
+  await expect(page.getByText("claude-code/claude-home/settings.json", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "After", exact: true })).toContainText("r2");
+
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
 test("hides a stale diff when the compared release disappears", async ({ page }) => {
   await signIn(page);
   await page.getByRole("link", { name: /Releases/ }).click();

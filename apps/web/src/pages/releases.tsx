@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, GitCompare, Minus, Plus, Trash2, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
@@ -93,7 +93,16 @@ export function ReleasesPage() {
   const [pending, setPending] = useState(false);
   const [beforeId, setBeforeId] = useState("");
   const [afterId, setAfterId] = useState("");
-  const [diff, setDiff] = useState<z.infer<typeof DiffResult>>();
+  // diff 连同"它是为哪一对 before/after 算出来的"一起存,渲染时再比对当前选择。
+  // 只存结果的话,切换选择或对比对象被删之后,页面就会在与选择器不一致的状态下
+  // 继续展示旧结果。
+  const [diff, setDiff] = useState<{
+    beforeId: string;
+    afterId: string;
+    result: z.infer<typeof DiffResult>;
+  }>();
+  // 请求序号:比较是手动触发的并发请求,先发的慢响应不能覆盖后发的结果
+  const compareRequest = useRef(0);
   const sets = useQuery({
     queryKey: ["config-sets"],
     queryFn: () => api("/api/v1/config-sets", ConfigSetList),
@@ -114,6 +123,11 @@ export function ReleasesPage() {
   const listedReleaseIds = new Set(releases.data?.map(({ id }) => id));
   const effectiveBeforeId = listedReleaseIds.has(beforeId) ? beforeId : "";
   const effectiveAfterId = listedReleaseIds.has(afterId) ? afterId : "";
+  const visibleDiff = diff
+    && diff.afterId === effectiveAfterId
+    && diff.beforeId === effectiveBeforeId
+    ? diff.result
+    : undefined;
 
   const publish = async () => {
     if (!detail.data) return;
@@ -157,13 +171,22 @@ export function ReleasesPage() {
   };
   const compare = async () => {
     if (!effectiveAfterId) return;
+    const requestId = ++compareRequest.current;
+    const requestedBefore = effectiveBeforeId;
+    const requestedAfter = effectiveAfterId;
     try {
-      setDiff(await api(
-        `/api/v1/releases/${effectiveAfterId}/diff${effectiveBeforeId ? `?before=${effectiveBeforeId}` : ""}`,
+      const result = await api(
+        `/api/v1/releases/${requestedAfter}/diff${requestedBefore ? `?before=${requestedBefore}` : ""}`,
         DiffResult,
-      ));
+      );
+      // 已被更晚的比较请求取代 —— 丢弃,否则慢的旧响应会覆盖新结果
+      if (compareRequest.current !== requestId) return;
+      setDiff({ beforeId: requestedBefore, afterId: requestedAfter, result });
     }
-    catch (error) { setActionError(error); }
+    catch (error) {
+      if (compareRequest.current !== requestId) return;
+      setActionError(error);
+    }
   };
   const blocking = diagnostics?.filter(({ severity }) => severity === "error").length ?? 0;
 
@@ -298,12 +321,11 @@ export function ReleasesPage() {
             </Field>
             <Button variant="outline" onClick={() => void compare()}>Compare</Button>
           </div>
-          {/* diff 只对当前选中的 After release 有意义。它被删除后 effectiveAfterId 归空,
-              残留的 diff 必须一起隐藏 —— 否则选择器显示 Choose… 而下方还在渲染
-              一个已不存在的 release 的对比结果。同时覆盖本页删除与其它标签页删除。 */}
-          {diff && effectiveAfterId && (
+          {/* 只渲染与当前有效选择一致的那份 diff:覆盖切换选择、对比对象被删、
+              以及慢的旧响应三种不一致 */}
+          {visibleDiff && (
             <div className="grid gap-3">
-              {diff.entries.map((entry) => {
+              {visibleDiff.entries.map((entry) => {
                 const toneClass = entry.action === "add"
                   ? "text-success"
                   : entry.action === "change"
