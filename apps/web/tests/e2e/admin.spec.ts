@@ -19,7 +19,38 @@ async function signIn(page: Page): Promise<void> {
   await expect(page).toHaveURL(/\/config-sets$/);
 }
 
+interface MonacoModel {
+  uri: { toString(): string };
+  getValue(): string;
+  setValue(value: string): void;
+}
+
+declare global {
+  function settingsModel(): MonacoModel;
+}
+
+/**
+ * 在页面里装一个按 URI 取 Monaco 模型的助手。编辑器用 keepCurrentModel,
+ * 先前打开的 rules/e2e.md 模型会继续存活,所以 getModels()[0] 的下标假设
+ * 会随创建顺序漂移。
+ */
+async function installModelHelper(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const target = window as unknown as {
+      settingsModel: () => MonacoModel;
+      monaco: { editor: { getModels(): MonacoModel[] } };
+    };
+    target.settingsModel = () => {
+      const model = target.monaco.editor.getModels()
+        .find((candidate) => candidate.uri.toString().includes("/settings.json"));
+      if (!model) throw new Error("The settings.json model is not loaded.");
+      return model;
+    };
+  });
+}
+
 test("administers a configuration through release without retaining one-time secrets", async ({ page }) => {
+  await installModelHelper(page);
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
   await page.getByLabel("Setup code").fill("playwright-setup-code");
@@ -119,21 +150,14 @@ test("administers a configuration through release without retaining one-time sec
   });
   expect((await uploadResponse).status()).toBe(201);
   await page.waitForFunction(() => "monaco" in window);
-  await expect.poll(async () => await page.evaluate(() => {
-    const browserWindow = window as typeof window & {
-      monaco: { editor: { getModels(): { getValue(): string }[] } };
-    };
-    return browserWindow.monaco.editor.getModels()[0]!.getValue();
-  })).toBe('{"model":"uploaded"}');
+  // 按 URI 取模型:keepCurrentModel 让 rules/e2e.md 的模型继续存活,
+  // getModels()[0] 的下标假设会随创建顺序漂移。
+  await expect.poll(async () => await page.evaluate(() => settingsModel().getValue()))
+    .toBe('{"model":"uploaded"}');
   const saveResponse = page.waitForResponse((response) => (
     response.request().method() === "PUT" && response.url().includes("/files") && response.status() === 200
   ));
-  await page.evaluate(() => {
-    const browserWindow = window as typeof window & {
-      monaco: { editor: { getModels(): { setValue(value: string): void }[] } };
-    };
-    browserWindow.monaco.editor.getModels()[0]!.setValue('{"model":"e2e"}');
-  });
+  await page.evaluate(() => { settingsModel().setValue('{"model":"e2e"}'); });
   await saveResponse;
   await expect(page.locator(".save-state")).toHaveText("saved");
   await page.locator(".monaco-editor .view-lines").click();
@@ -143,11 +167,10 @@ test("administers a configuration through release without retaining one-time sec
       __e2eEditorElement?: Element | null;
       __e2eInput?: Element | null;
       __e2eModel?: unknown;
-      monaco: { editor: { getModels(): unknown[] } };
     };
     browserWindow.__e2eEditorElement = document.querySelector(".monaco-editor");
     browserWindow.__e2eInput = document.activeElement;
-    browserWindow.__e2eModel = browserWindow.monaco.editor.getModels()[0];
+    browserWindow.__e2eModel = settingsModel();
   });
   const firstContinuousSave = page.waitForResponse((response) => (
     response.request().method() === "PUT" && response.url().includes("/files") && response.status() === 200
@@ -160,10 +183,9 @@ test("administers a configuration through release without retaining one-time sec
       __e2eEditorElement?: Element | null;
       __e2eInput?: Element | null;
       __e2eModel?: unknown;
-      monaco: { editor: { getModels(): unknown[] } };
     };
     return browserWindow.__e2eEditorElement === document.querySelector(".monaco-editor") &&
-      browserWindow.__e2eModel === browserWindow.monaco.editor.getModels()[0] &&
+      browserWindow.__e2eModel === settingsModel() &&
       document.activeElement === browserWindow.__e2eInput;
   })).toBe(true);
   const secondContinuousSave = page.waitForResponse((response) => (
@@ -172,21 +194,13 @@ test("administers a configuration through release without retaining one-time sec
   await page.keyboard.insertText(" ");
   await secondContinuousSave;
   await expect(page.locator(".save-state")).toHaveText("saved");
-  await expect.poll(async () => await page.evaluate(() => {
-    const browserWindow = window as typeof window & {
-      monaco: { editor: { getModels(): { getValue(): string }[] } };
-    };
-    return browserWindow.monaco.editor.getModels()[0]!.getValue();
-  })).toBe('{"model":"e2e"}  ');
+  await expect.poll(async () => await page.evaluate(() => settingsModel().getValue()))
+    .toBe('{"model":"e2e"}  ');
   await page.reload();
   await page.getByRole("button", { name: /settings\.json/ }).click();
   await page.waitForFunction(() => "monaco" in window);
-  await expect.poll(async () => await page.evaluate(() => {
-    const browserWindow = window as typeof window & {
-      monaco: { editor: { getModels(): { getValue(): string }[] } };
-    };
-    return browserWindow.monaco.editor.getModels()[0]!.getValue().trim();
-  })).toBe('{"model":"e2e"}');
+  await expect.poll(async () => await page.evaluate(() => settingsModel().getValue().trim()))
+    .toBe('{"model":"e2e"}');
 
   await page.getByRole("link", { name: /Resources/ }).click();
   await page.getByRole("button", { name: "New instruction" }).click();

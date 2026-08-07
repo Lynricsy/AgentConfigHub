@@ -127,7 +127,7 @@ export function ConfigSetListPage() {
         to={`/config-sets/${configSet.id}/configs/${cardAgentId}`}
       >
         <Card className="h-full transition-colors duration-150 hover:border-ring/50">
-          <div className="flex flex-col gap-3 p-4">
+          <div className="flex flex-col items-start gap-3 p-4">
             <Badge variant={dirty ? "warning" : "success"}>
               {dirty
                 ? <GitBranch aria-hidden="true" />

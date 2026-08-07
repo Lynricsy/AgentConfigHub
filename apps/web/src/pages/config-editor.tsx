@@ -780,6 +780,7 @@ export function ConfigEditorPage() {
 
   return (
     <Page
+      fill
       title={detail.data.configSet.name}
       actions={(
         <>
@@ -826,7 +827,7 @@ export function ConfigEditorPage() {
         </>
       )}
     >
-      <div className="flex h-[calc(100vh-10rem)] min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
         {adding && (
           <form className="add-file-bar flex shrink-0 items-end gap-2" onSubmit={addFile}>
             <Field className="min-w-0 flex-1" label="Relative path">

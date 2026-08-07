@@ -83,7 +83,7 @@ The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding 
 ## Architecture
 
 - `apps/server` — Fastify API, SQLite metadata, encrypted blob storage, authentication, and release orchestration
-- `apps/web` — React and Vite single-page administration UI; Terminal Brutalism design system (Space Grotesk + JetBrains Mono, `lucide-react` icons, `motion` spring animations); Lenis smooth scroll managed by `AppShell` `useEffect`, disabled under `prefers-reduced-motion`
+- `apps/web` — React and Vite single-page administration UI; Tailwind CSS v4 with `oklch` semantic tokens and Radix Primitives components in `src/ui` (shadcn/ui pattern, code lives in the repository); light/dark/system theming persisted in `localStorage` under `agch-theme`; Inter + JetBrains Mono, `lucide-react` icons, `sonner` toasts; native scrolling — `AppShell` renders a single bounded `<main>` scroll port, no scroll library
 - `packages/protocol` — shared Zod wire contracts
 - `packages/adapters` — shared agent validation, rendering, and local path safety
 - `packages/cli` — standalone pull-only npm CLI

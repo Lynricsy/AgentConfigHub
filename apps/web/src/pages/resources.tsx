@@ -441,6 +441,7 @@ export function ResourcesPage() {
 
   return (
     <Page
+      fill
       title="Resources"
       lede="Edit reusable instructions and skill files directly. Bind them from each Agent configuration."
       actions={(
@@ -463,7 +464,7 @@ export function ResourcesPage() {
         </>
       )}
     >
-      <div className="flex h-[calc(100vh-10rem)] min-h-0 flex-col gap-4 overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
         {creatingKind && (
           <Card className="shrink-0">
             <form onSubmit={(event) => void createResource(event)}>
