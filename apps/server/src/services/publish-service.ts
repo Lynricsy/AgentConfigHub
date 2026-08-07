@@ -590,7 +590,7 @@ export class PublishService {
       `);
       for (const file of sourceFiles) insertDraft.run(
         ulid(), configSetId, file.agentId, file.rootId, file.relativePath, file.blobSha256,
-        file.mediaType, Number(file.mediaType.startsWith("text/") || file.mediaType === "application/json"),
+        file.mediaType, Number(isUtf8MediaType(file.mediaType)),
         file.executable, now, now,
       );
 

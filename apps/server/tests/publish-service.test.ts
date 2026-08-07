@@ -54,7 +54,7 @@ describe("PublishService", () => {
     ), "application/json");
     const ompTemplate = await blobStore.put(Readable.from(
       'models: []\nproviders:\n  api_key: "{{secret:MODEL_API_KEY}}"\n',
-    ), "text/yaml");
+    ), "application/yaml");
     revision = configSets.saveFile({
       configSetId: configSet.id,
       expectedRevision: revision,
@@ -71,7 +71,7 @@ describe("PublishService", () => {
       agentId: "omp",
       target: { root: "omp-home", relativePath: "config.yml" },
       blobSha256: ompTemplate.sha256,
-      mediaType: "text/yaml",
+      mediaType: "application/yaml",
       utf8: true,
       executable: false,
     });
@@ -218,6 +218,13 @@ describe("PublishService", () => {
       "SELECT agent_id, root_id, relative_path, blob_sha256 FROM release_files WHERE release_id = ? ORDER BY agent_id, root_id, relative_path",
     ).all(rollback.releaseId);
     expect(rollbackHashes).toEqual(release1Hashes);
+    expect(database.native.prepare(`
+      SELECT relative_path AS relativePath, media_type AS mediaType, utf8
+      FROM draft_files WHERE config_set_id = ? ORDER BY relative_path
+    `).all(configSet.id)).toEqual([
+      { relativePath: "config.yml", mediaType: "application/yaml", utf8: 1 },
+      { relativePath: "settings.json", mediaType: "application/json", utf8: 1 },
+    ]);
 
     expect(() => publish.deleteHistorical(configSet.id, rollback.releaseId)).toThrow("CURRENT_RELEASE");
     const restoredDraft = database.native.prepare(
