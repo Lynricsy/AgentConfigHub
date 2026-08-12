@@ -147,9 +147,13 @@ export function LoginPage(): ReactElement {
 /* ── ErrorNotice ────────────────────────────────────────────────────── */
 
 export function ErrorNotice({ error }: { error: unknown }): ReactElement {
+  // ApiClientError 带 requestId，可直接对照服务端日志；本地校验抛出的普通 Error
+  // 也必须显示其 message，否则「路径不在托管范围」这类原因会被通用文案吞掉。
   const message = error instanceof ApiClientError
     ? `${error.message} · ${error.requestId}`
-    : "The request could not be completed.";
+    : error instanceof Error && error.message.length > 0
+      ? error.message
+      : "The request could not be completed.";
   return (
     <div
       className="flex items-start gap-2 rounded-md border border-destructive/35 bg-destructive/10 px-3 py-2 text-xs text-destructive"

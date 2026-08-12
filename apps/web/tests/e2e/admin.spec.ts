@@ -136,6 +136,13 @@ test("administers a configuration through release without retaining one-time sec
   await expect(deleteButton).toBeEnabled();
   await page.unroute(createRoute);
 
+  // 本地校验失败必须显示真实原因,而不是被 ErrorNotice 的通用文案吞掉。
+  await newButton.click();
+  await page.getByLabel("Relative path").fill("role-prompts/nope.md");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await expect(page.getByText("role-prompts/nope.md is not a managed path for claude-code."))
+    .toBeVisible();
+
   const uploadResponse = page.waitForResponse((response) => (
     response.request().method() === "POST" &&
     response.url().endsWith("/configs/claude-code/files")
