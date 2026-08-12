@@ -25,9 +25,13 @@ import type { EncryptedBlobStore } from "../storage/encrypted-blob-store.js";
 import { RevisionConflictError } from "./draft-revision.js";
 import { SecretBindingResolver, type ResolvedSecret } from "./secret-binding-resolver.js";
 
-// 发布出的 release 要求的最低 CLI 版本。adapter surface/revision 契约变化时必须抬高,
-// 否则旧 CLI 会先通过版本检查、再在 adapter revision 或目标校验阶段给出更晦涩的错误。
-const MIN_CLI_VERSION = "0.2.0";
+// release 要求的最低 CLI 版本。omp 的 surface 白名单在 adapter revision 3 扩了 role-prompts/**,
+// 旧 CLI 不识别该目标；只有启用 omp 的 release 才需要 0.2.0，否则旧 CLI 仍能正常拉取。
+const BASE_MIN_CLI_VERSION = "0.1.0";
+const OMP_MIN_CLI_VERSION = "0.2.0";
+const minCliVersionFor = (agents: readonly AgentId[]): string => (
+  agents.includes("omp") ? OMP_MIN_CLI_VERSION : BASE_MIN_CLI_VERSION
+);
 
 interface ConfigSetRow {
   id: string;
@@ -425,6 +429,7 @@ export class PublishService {
       const adapterRevisions = Object.fromEntries(
         Object.entries(adapterRegistry).map(([agentId, adapter]) => [agentId, adapter.revision]),
       );
+      const minCliVersion = minCliVersionFor(enabledAgents);
       this.#database.native.prepare(`
         INSERT INTO releases (
           id, config_set_id, release_number, draft_revision, enabled_agents,
@@ -437,7 +442,7 @@ export class PublishService {
         expectedDraftRevision,
         JSON.stringify(enabledAgents),
         notes ?? null,
-        MIN_CLI_VERSION,
+        minCliVersion,
         JSON.stringify(adapterRevisions),
         Date.now(),
       );
@@ -513,7 +518,7 @@ export class PublishService {
         enabledAgents,
         selection: "all-enabled",
         includedAgents: enabledAgents,
-        minCliVersion: MIN_CLI_VERSION,
+        minCliVersion,
         adapterRevisions,
         files: manifestFiles,
       });

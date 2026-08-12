@@ -54,4 +54,32 @@ describe("release manifest compatibility contract", () => {
       .toEqual({ floor: "0.2.0" });
     database.native.close();
   });
+
+  it("keeps the CLI floor at 0.1.0 for releases without omp", async () => {
+    directory = await mkdtemp(join(tmpdir(), "agent-config-hub-manifest-base-"));
+    const database = openDatabase(directory);
+    migrateDatabase(database);
+    const masterKey = await loadMasterKey({ AGENT_CONFIG_HUB_MASTER_KEY: randomBytes(32).toString("base64") });
+    const blobs = new FileEncryptedBlobStore(database, masterKey, directory);
+    const configSets = new ConfigSetService(database);
+    const configSet = configSets.create({ name: "Claude only", slug: "claude-only", agentId: "claude-code" });
+    const blob = await blobs.put(Readable.from("# Rule\n"), "text/markdown");
+    const revision = configSets.createFile({
+      configSetId: configSet.id,
+      expectedRevision: 1,
+      agentId: "claude-code",
+      target: { root: "claude-home", relativePath: "rules/base.md" },
+      blobSha256: blob.sha256,
+      mediaType: "text/markdown",
+      utf8: true,
+      executable: false,
+    });
+
+    const publish = new PublishService(database, blobs, new SecretBindingResolver(database, masterKey));
+    const { manifest } = await publish.publish(configSet.id, revision);
+
+    // omp 的契约变更不应波及只启用其他 Agent 的 release，旧 CLI 必须仍能拉取。
+    expect(manifest.minCliVersion).toBe("0.1.0");
+    database.native.close();
+  });
 });
