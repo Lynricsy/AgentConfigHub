@@ -251,6 +251,16 @@ it("accepts the OMP MCP configuration as managed JSON", () => {
   })).toMatchObject({ format: "json", reserved: false });
 });
 
+it("manages OMP role prompt files consumed by the role-prompt extension", () => {
+  const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
+  // role-prompt.ts 扩展按 `<agent-dir>/role-prompts/<role>.md` 加载角色提示词，
+  // 因此该目录必须是可托管面，否则 Web 与 CLI 都会拒绝这些文件。
+  expect(assertAllowedTarget(adapter, {
+    root: "omp-home",
+    relativePath: "role-prompts/Arianna.md",
+  })).toMatchObject({ format: "auto", reserved: false });
+});
+
 describe("cross-platform target safety", () => {
   it.each([
     "/absolute.json",

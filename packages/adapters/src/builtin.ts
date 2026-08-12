@@ -101,7 +101,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "omp",
-    revision: 2,
+    revision: 3,
     roots: ["omp-home"],
     defaults: { "omp-home": [".omp", "agent"] },
     instructionTarget: { root: "omp-home", relativePath: "AGENTS.md" },
@@ -113,7 +113,7 @@ const definitions: readonly AdapterDefinition[] = [
       surface("omp-home", "mcp.json", "json"),
       surface("omp-home", "AGENTS.md", "markdown", true),
       ...["RULES.md", "SYSTEM.md", "APPEND_SYSTEM.md", "TITLE_SYSTEM.md"].map((path) => surface("omp-home", path, "markdown")),
-      ...["skills", "commands", "rules", "prompts", "instructions", "hooks", "tools", "extensions"].map((directory) =>
+      ...["skills", "commands", "rules", "prompts", "role-prompts", "instructions", "hooks", "tools", "extensions"].map((directory) =>
         surface("omp-home", `${directory}/**`, "auto")),
     ],
   },
