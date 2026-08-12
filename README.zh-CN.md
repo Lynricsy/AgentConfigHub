@@ -70,6 +70,8 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` 执行浏览器审批的设备配对。自动化可用 `AGENT_CONFIG_HUB_SERVER` 和 `AGENT_CONFIG_HUB_TOKEN` 覆盖本地凭据，令牌无需进入 argv。拉取会校验不可变清单、流式下载并计算哈希、在同文件系统 staging、备份被覆盖/删除的受管文件，再通过持久 journal 提交。
 
+每个发布版本都会记录最低 CLI 版本。启用 Oh My Pi（OMP）的发布要求 CLI `0.2.1` 及以上——OMP 适配器 revision 3 新增了 `role-prompts/**` 受管面；未启用 OMP 的发布仍兼容 `0.1.0`。低版本 CLI 会在改动任何文件之前直接拉取失败。
+
 ## 运维
 
 - `GET /api/v1/health` 只在迁移、主密钥加载、本地卷探测和实时 SQLite 写锁探针均正常后成功。
@@ -78,7 +80,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 ## 支持的 Agent
 
-内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。
+内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。每个适配器都显式声明自己管理的文件面；OMP 覆盖 `config.yml`、`models.yml`、`keybindings.yml`/`.json`、`mcp.json`、各 `*.md` 指令文件，以及 `skills`、`commands`、`rules`、`prompts`、`role-prompts`、`instructions`、`hooks`、`tools`、`extensions` 目录。
 
 ## 架构
 
@@ -96,7 +98,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 ## 发布状态
 
-仓库现包含经验证的预发布实现：生产 Web E2E、认证/加密集成、六适配器契约、真实打包 `npx` 拉取、崩溃恢复、Blob GC 和非 root Compose 启动均有可执行覆盖。尚未执行 npm registry 发布；首次打标签发布前 API 仍可能调整。
+生产 Web E2E、认证/加密集成、六适配器契约、真实打包 `npx` 拉取、崩溃恢复、Blob GC 和非 root Compose 启动均有可执行覆盖。CLI 已发布到 npm，容器镜像连同构建证明发布到 GHCR。API 仍可能调整；适配器受管面变化会同时抬高 adapter revision 与发布的最低 CLI 版本。
 
 ## 许可证
 

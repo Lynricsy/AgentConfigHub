@@ -22,8 +22,8 @@ jobs:
 
       - run: corepack enable
       - run: corepack pnpm install --frozen-lockfile
-      - run: corepack pnpm --filter @agent-config-hub/adapters build
-      - run: corepack pnpm --filter agent-config-hub build
+      # CLI 的类型依赖 protocol/adapters 的构建产物，必须按拓扑顺序连同依赖一起构建。
+      - run: corepack pnpm --filter "agent-config-hub..." build
       - run: corepack pnpm --filter agent-config-hub typecheck
       - run: corepack pnpm --filter agent-config-hub test
       - name: Verify release tag

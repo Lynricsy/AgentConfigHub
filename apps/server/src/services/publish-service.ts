@@ -26,9 +26,10 @@ import { RevisionConflictError } from "./draft-revision.js";
 import { SecretBindingResolver, type ResolvedSecret } from "./secret-binding-resolver.js";
 
 // release 要求的最低 CLI 版本。omp 的 surface 白名单在 adapter revision 3 扩了 role-prompts/**,
-// 旧 CLI 不识别该目标；只有启用 omp 的 release 才需要 0.2.0，否则旧 CLI 仍能正常拉取。
+// 旧 CLI 不识别该目标；只有启用 omp 的 release 才需要新 CLI，否则旧 CLI 仍能正常拉取。
+// 0.2.1 是 npm 上第一个内置 revision 3 的版本（0.2.0 因发布流水线缺陷从未发出）。
 const BASE_MIN_CLI_VERSION = "0.1.0";
-const OMP_MIN_CLI_VERSION = "0.2.0";
+const OMP_MIN_CLI_VERSION = "0.2.1";
 const minCliVersionFor = (agents: readonly AgentId[]): string => (
   agents.includes("omp") ? OMP_MIN_CLI_VERSION : BASE_MIN_CLI_VERSION
 );

@@ -49,9 +49,9 @@ describe("release manifest compatibility contract", () => {
     expect(manifest.files.map((file) => file.target.relativePath)).toContain("role-prompts/Arianna.md");
     // adapter revision 与 minCliVersion 是 CLI 的两道兼容闸门，必须随 surface 契约同步抬高。
     expect(manifest.adapterRevisions.omp).toBe(3);
-    expect(manifest.minCliVersion).toBe("0.2.0");
+    expect(manifest.minCliVersion).toBe("0.2.1");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.2.0" });
+      .toEqual({ floor: "0.2.1" });
     database.native.close();
   });
 
@@ -80,6 +80,8 @@ describe("release manifest compatibility contract", () => {
 
     // omp 的契约变更不应波及只启用其他 Agent 的 release，旧 CLI 必须仍能拉取。
     expect(manifest.minCliVersion).toBe("0.1.0");
+    expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
+      .toEqual({ floor: "0.1.0" });
     database.native.close();
   });
 });
