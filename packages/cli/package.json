@@ -1,6 +1,6 @@
 {
   "name": "agent-config-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pull immutable AgentConfigHub releases with transactional backups and crash recovery",
   "license": "MIT",
   "type": "module",

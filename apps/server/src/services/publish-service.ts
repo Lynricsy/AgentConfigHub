@@ -25,6 +25,10 @@ import type { EncryptedBlobStore } from "../storage/encrypted-blob-store.js";
 import { RevisionConflictError } from "./draft-revision.js";
 import { SecretBindingResolver, type ResolvedSecret } from "./secret-binding-resolver.js";
 
+// 发布出的 release 要求的最低 CLI 版本。adapter surface/revision 契约变化时必须抬高,
+// 否则旧 CLI 会先通过版本检查、再在 adapter revision 或目标校验阶段给出更晦涩的错误。
+const MIN_CLI_VERSION = "0.2.0";
+
 interface ConfigSetRow {
   id: string;
   name: string;
@@ -433,7 +437,7 @@ export class PublishService {
         expectedDraftRevision,
         JSON.stringify(enabledAgents),
         notes ?? null,
-        "0.1.0",
+        MIN_CLI_VERSION,
         JSON.stringify(adapterRevisions),
         Date.now(),
       );
@@ -509,7 +513,7 @@ export class PublishService {
         enabledAgents,
         selection: "all-enabled",
         includedAgents: enabledAgents,
-        minCliVersion: "0.1.0",
+        minCliVersion: MIN_CLI_VERSION,
         adapterRevisions,
         files: manifestFiles,
       });
