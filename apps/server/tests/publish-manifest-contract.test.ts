@@ -21,7 +21,7 @@ describe("release manifest compatibility contract", () => {
     directory = undefined;
   });
 
-  it("publishes omp role prompts and pins the CLI compatibility floor", async () => {
+  it("publishes omp role prompts and pins the current CLI compatibility floor", async () => {
     directory = await mkdtemp(join(tmpdir(), "agent-config-hub-manifest-"));
     const database = openDatabase(directory);
     migrateDatabase(database);
@@ -48,14 +48,21 @@ describe("release manifest compatibility contract", () => {
 
     expect(manifest.files.map((file) => file.target.relativePath)).toContain("role-prompts/Arianna.md");
     // adapter revision 与 minCliVersion 是 CLI 的两道兼容闸门，必须随 surface 契约同步抬高。
-    expect(manifest.adapterRevisions.omp).toBe(3);
-    expect(manifest.minCliVersion).toBe("0.2.1");
+    expect(manifest.adapterRevisions).toEqual({
+      "claude-code": 2,
+      codex: 2,
+      opencode: 2,
+      pi: 2,
+      omp: 4,
+      grok: 2,
+    });
+    expect(manifest.minCliVersion).toBe("0.2.2");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.2.1" });
+      .toEqual({ floor: "0.2.2" });
     database.native.close();
   });
 
-  it("keeps the CLI floor at 0.1.0 for releases without omp", async () => {
+  it("requires the current CLI for releases without omp", async () => {
     directory = await mkdtemp(join(tmpdir(), "agent-config-hub-manifest-base-"));
     const database = openDatabase(directory);
     migrateDatabase(database);
@@ -78,10 +85,10 @@ describe("release manifest compatibility contract", () => {
     const publish = new PublishService(database, blobs, new SecretBindingResolver(database, masterKey));
     const { manifest } = await publish.publish(configSet.id, revision);
 
-    // omp 的契约变更不应波及只启用其他 Agent 的 release，旧 CLI 必须仍能拉取。
-    expect(manifest.minCliVersion).toBe("0.1.0");
+    // 所有 adapter 都新增了 `.env` surface 并提升 revision，任一新 release 都需要当前 CLI。
+    expect(manifest.minCliVersion).toBe("0.2.2");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.1.0" });
+      .toEqual({ floor: "0.2.2" });
     database.native.close();
   });
 });

@@ -70,7 +70,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` performs browser-approved device pairing. `AGENT_CONFIG_HUB_SERVER` and `AGENT_CONFIG_HUB_TOKEN` override stored credentials for automation without placing the token in argv. A pull validates the immutable manifest, streams and hashes downloads, stages same-filesystem replacements, backs up overwritten/deleted managed files, and commits through a durable journal.
 
-Each release records a minimum CLI version. Releases that enable Oh My Pi (OMP) require CLI `0.2.1` or newer, because OMP adapter revision 3 added the `role-prompts/**` managed surface; releases without OMP stay compatible with `0.1.0`. An older CLI fails the pull before touching any file.
+Each release records a minimum CLI version. New releases require CLI `0.2.2` or newer because every built-in adapter revision now includes the root `.env` managed surface. An older CLI fails the pull before touching any file.
 
 ## Operations
 
@@ -80,7 +80,7 @@ Each release records a minimum CLI version. Releases that enable Oh My Pi (OMP) 
 
 ## Supported Agents
 
-The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages; OMP covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `instructions`, `hooks`, `tools`, and `extensions` directories.
+The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages, including a root `.env` file with dotenv validation. OMP also covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `instructions`, `hooks`, `tools`, and `extensions` directories.
 
 ## Architecture
 

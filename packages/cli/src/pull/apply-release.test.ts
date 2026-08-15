@@ -50,12 +50,12 @@ function manifest(releaseNumber: number, files: ReleaseFileV1[]) {
     includedAgents: ["claude-code"],
     minCliVersion: "0.1.0",
     adapterRevisions: {
-      "claude-code": 1,
-      codex: 1,
-      opencode: 1,
-      pi: 1,
-      omp: 1,
-      grok: 1,
+      "claude-code": 2,
+      codex: 2,
+      opencode: 2,
+      pi: 2,
+      omp: 4,
+      grok: 2,
     },
     files,
   });

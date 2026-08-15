@@ -34,13 +34,14 @@ const surface = (
 const definitions: readonly AdapterDefinition[] = [
   {
     id: "claude-code",
-    revision: 1,
+    revision: 2,
     roots: ["claude-home"],
     defaults: { "claude-home": [".claude"] },
     instructionTarget: { root: "claude-home", relativePath: "CLAUDE.md" },
     skillRoot: "claude-home",
     skillDirectory: "skills",
     surfaces: [
+      surface("claude-home", ".env", "dotenv"),
       surface("claude-home", "settings.json", "json"),
       surface("claude-home", "CLAUDE.md", "markdown", true),
       ...["agents", "skills", "commands", "rules", "output-styles"].map((directory) =>
@@ -49,13 +50,14 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "codex",
-    revision: 1,
+    revision: 2,
     roots: ["codex-home", "agents-home"],
     defaults: { "codex-home": [".codex"], "agents-home": [".agents"] },
     instructionTarget: { root: "codex-home", relativePath: "AGENTS.override.md" },
     skillRoot: "agents-home",
     skillDirectory: "skills",
     surfaces: [
+      surface("codex-home", ".env", "dotenv"),
       surface("codex-home", "config.toml", "toml"),
       surface("codex-home", "*.config.toml", "toml"),
       surface("codex-home", "AGENTS.md", "markdown"),
@@ -68,13 +70,14 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "opencode",
-    revision: 1,
+    revision: 2,
     roots: ["opencode-home"],
     defaults: { "opencode-home": [".config", "opencode"] },
     instructionTarget: { root: "opencode-home", relativePath: "AGENTS.md" },
     skillRoot: "opencode-home",
     skillDirectory: "skills",
     surfaces: [
+      surface("opencode-home", ".env", "dotenv"),
       ...["opencode.json", "tui.json"].map((path) => surface("opencode-home", path, "json")),
       ...["opencode.jsonc", "tui.jsonc"].map((path) => surface("opencode-home", path, "jsonc")),
       surface("opencode-home", "AGENTS.md", "markdown", true),
@@ -86,13 +89,14 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "pi",
-    revision: 1,
+    revision: 2,
     roots: ["pi-home"],
     defaults: { "pi-home": [".pi", "agent"] },
     instructionTarget: { root: "pi-home", relativePath: "AGENTS.md" },
     skillRoot: "pi-home",
     skillDirectory: "skills",
     surfaces: [
+      surface("pi-home", ".env", "dotenv"),
       ...["settings.json", "models.json", "keybindings.json"].map((path) => surface("pi-home", path, "json")),
       surface("pi-home", "AGENTS.md", "markdown", true),
       ...["SYSTEM.md", "APPEND_SYSTEM.md"].map((path) => surface("pi-home", path, "markdown")),
@@ -101,13 +105,14 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "omp",
-    revision: 3,
+    revision: 4,
     roots: ["omp-home"],
     defaults: { "omp-home": [".omp", "agent"] },
     instructionTarget: { root: "omp-home", relativePath: "AGENTS.md" },
     skillRoot: "omp-home",
     skillDirectory: "skills",
     surfaces: [
+      surface("omp-home", ".env", "dotenv"),
       ...["config.yml", "models.yml", "keybindings.yml"].map((path) => surface("omp-home", path, "yaml")),
       surface("omp-home", "keybindings.json", "json"),
       surface("omp-home", "mcp.json", "json"),
@@ -119,13 +124,14 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "grok",
-    revision: 1,
+    revision: 2,
     roots: ["grok-home"],
     defaults: { "grok-home": [".grok"] },
     instructionTarget: { root: "grok-home", relativePath: "rules/agent-config-hub.md" },
     skillRoot: "grok-home",
     skillDirectory: "skills",
     surfaces: [
+      surface("grok-home", ".env", "dotenv"),
       ...["config.toml", "pager.toml"].map((path) => surface("grok-home", path, "toml")),
       ...["settings.json", "lsp.json"].map((path) => surface("grok-home", path, "json")),
       surface("grok-home", "rules/agent-config-hub.md", "markdown", true),

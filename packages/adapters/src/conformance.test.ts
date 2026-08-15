@@ -157,6 +157,26 @@ describe.each(builtInAdapters)("$id adapter conformance", (adapter) => {
     }
   });
 
+  it("accepts and validates a root .env file", async () => {
+    const envSurface = adapter.surfaces.find(({ pattern }) => pattern === ".env");
+    expect(envSurface).toMatchObject({ format: "dotenv", reserved: false });
+    const target = { root: envSurface!.root, relativePath: ".env" };
+    expect(() => assertAllowedTarget(adapter, target)).not.toThrow();
+
+    const file: AdapterFile = {
+      agentId: adapter.id,
+      target,
+      mediaType: "text/plain",
+      format: "dotenv",
+      text: "MODEL_API_KEY={{secret:MODEL_API_KEY}}\n",
+      executable: false,
+    };
+    await expect(adapter.validate(file)).resolves.toEqual([]);
+    await expect(adapter.validate({ ...file, text: "invalid assignment\n" })).resolves.toContainEqual(
+      expect.objectContaining({ code: "FORMAT_SYNTAX_ERROR", severity: "error" }),
+    );
+  });
+
   it("rejects every explicitly unmanaged area", () => {
     for (const fixture of excluded[adapter.id]) {
       expect(() => assertAllowedTarget(adapter, {
