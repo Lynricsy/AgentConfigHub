@@ -55,6 +55,7 @@ import { Field } from "../ui/field.js";
 import { Input } from "../ui/input.js";
 import { Page } from "../ui/page.js";
 import { Loading } from "../ui/spinner.js";
+import { uploadedMediaTypeFor } from "../upload-media-type.js";
 
 const RevisionResult = z.object({ revision: z.number().int() });
 const MONACO_LIMIT = 2 * 1024 * 1024;
@@ -77,16 +78,6 @@ function mediaTypeFor(path: string): string {
   if (language === "markdown") return "text/markdown";
   return "text/plain";
 }
-function uploadedMediaTypeFor(path: string): string {
-  const lower = path.toLocaleLowerCase("en-US");
-  if (lower.endsWith(".json") || lower.endsWith(".jsonc")) return "application/json";
-  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "application/yaml";
-  if (lower.endsWith(".toml")) return "application/toml";
-  if (lower.endsWith(".md")) return "text/markdown";
-  if (lower.endsWith(".sh") || lower.endsWith(".txt")) return "text/plain";
-  return "application/octet-stream";
-}
-
 
 function newFileText(path: string): string {
   return languageFor(path) === "json" ? "{}\n" : "";
@@ -816,11 +807,7 @@ export function ConfigEditorPage() {
                 const input = event.currentTarget;
                 const file = input.files?.[0];
                 if (!file) return;
-                void createFile(
-                  file.name,
-                  file,
-                  file.type || uploadedMediaTypeFor(file.name),
-                ).finally(() => {
+                void createFile(file.name, file, uploadedMediaTypeFor(file)).finally(() => {
                   input.value = "";
                 });
               }}

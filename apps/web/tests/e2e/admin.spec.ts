@@ -207,6 +207,28 @@ test("administers a configuration through release without retaining one-time sec
   await expect.poll(async () => await page.evaluate(() => settingsModel()?.getValue().trim() ?? null))
     .toBe('{"model":"e2e"}');
 
+  // 浏览器对 `.env` 猜不出 MIME:这里传空 mimeType,Chromium 会把它归一成
+  // application/octet-stream。若照单全收当二进制上传,文件就会以 utf8: false 入库,
+  // 发布时的 dotenv 校验与 secret 替换都会被跳过。
+  await page.getByRole("link", { name: /Configuration/ }).click();
+  await page.getByRole("link", { name: /E2E workstation Agent · omp/ }).click();
+  await expect(page).toHaveURL(/\/config-sets\/[^/]+\/configs\/omp$/);
+  const envBlobRequest = page.waitForRequest((request) => (
+    request.method() === "PUT" && request.url().endsWith("/api/v1/blobs")
+  ));
+  const envCreateResponse = page.waitForResponse((response) => (
+    response.request().method() === "POST" && response.url().endsWith("/configs/omp/files")
+  ));
+  await page.getByLabel("Upload file").setInputFiles({
+    name: ".env",
+    mimeType: "",
+    buffer: Buffer.from("OMP_MODEL=e2e-model\n"),
+  });
+  expect((await envBlobRequest).headers()["content-type"]).toBe("text/plain");
+  const envCreate = await envCreateResponse;
+  expect(envCreate.status()).toBe(201);
+  expect(envCreate.request().postDataJSON()).toMatchObject({ mediaType: "text/plain", utf8: true });
+
   await page.getByRole("link", { name: /Resources/ }).click();
   await page.getByRole("button", { name: "New instruction" }).click();
   await page.getByLabel("Name").fill("E2E instructions");
