@@ -258,7 +258,7 @@ describe.each(builtInAdapters)("$id adapter conformance", (adapter) => {
       expect.objectContaining({ code: "SCHEMA_VALIDATION_ERROR", severity: "error" }),
     );
     expect(ADAPTER_SCHEMA_SNAPSHOTS[adapter.id].version).toMatch(
-      adapter.id === "omp" ? /^omp-config-2026-07-31$/ : /^.+-2026-07-29$/,
+      adapter.id === "omp" ? /^omp-config-2026-08-27$/ : /^.+-2026-07-29$/,
     );
   });
 });
@@ -279,6 +279,33 @@ it("manages OMP role prompt files consumed by the role-prompt extension", () => 
     root: "omp-home",
     relativePath: "role-prompts/Arianna.md",
   })).toMatchObject({ format: "auto", reserved: false });
+});
+
+it("does not flag real omp settings keys as unknown", async () => {
+  const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
+  // 回归：schema snapshot 缺键曾导致真实设置键被误报 UNKNOWN_SCHEMA_KEY。
+  const diagnostics = await adapter.validate({
+    agentId: "omp",
+    target: { root: "omp-home", relativePath: "config.yml" },
+    mediaType: "text/plain",
+    format: "yaml",
+    text: [
+      "symbolPreset: nerd",
+      "theme:",
+      "  dark: titanium",
+      "setupVersion: 3",
+      "modelRoles:",
+      "  default: anthropic/claude-sonnet-4-5",
+      "cycleOrder: [smol, default, slow]",
+      "disabledProviders: []",
+      "commands: {}",
+      "memory: {}",
+      "advisor:",
+      "  enabled: false",
+    ].join("\n"),
+    executable: false,
+  });
+  expect(diagnostics).toEqual([]);
 });
 
 describe("cross-platform target safety", () => {

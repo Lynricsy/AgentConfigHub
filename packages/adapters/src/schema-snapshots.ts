@@ -12,6 +12,36 @@ const objectSchema = (properties: Record<string, unknown>): Record<string, unkno
   additionalProperties: true,
 });
 
+// omp 顶层设置键（来源：omp config list，2026-08-27 快照）。
+// 仅用于未知键检测；值级校验由下方显式类型条目提供。
+const OMP_SETTINGS_KEYS = [
+  "advisor", "ask", "astEdit", "astGrep", "async", "auth", "autoResume",
+  "autocompleteMaxVisible", "autolearn", "bash", "bashInterceptor",
+  "branchSummary", "browser", "checkpoint", "codexResets", "collab",
+  "colorBlindMode", "commands", "commit", "compaction", "completion",
+  "composer", "computer", "contextPromotion", "cycleOrder", "debug",
+  "defaultThinkingLevel", "dev", "disabledExtensions", "disabledProviders",
+  "display", "doubleEscapeAction", "edit", "emojiAutocomplete",
+  "enabledModels", "error", "eval", "exa", "extendedContext",
+  "extensionHandlers", "externalThinking", "features", "fetch",
+  "followUpMode", "gc", "generate_image", "git", "github", "glob", "goal",
+  "grep", "hideThinkingBlock", "hindsight", "images", "includeModelInPrompt",
+  "includeWorkspaceTree", "inlineToolDescriptors", "inspect_image",
+  "interruptMode", "irc", "julia", "launch", "live", "loop", "lsp",
+  "magicKeywords", "marketplace", "mcp", "memories", "memory", "minP",
+  "mnemopi", "model", "modelProviderOrder", "modelRoleStorage", "modelRoles",
+  "modelTags", "omitThinking", "paste", "personality", "plan", "power",
+  "presencePenalty", "prewalk", "proseOnlyThinking", "provider", "python",
+  "read", "readLineNumbers", "recap", "repetitionPenalty", "retry", "ruby",
+  "searxng", "secrets", "security", "setupVersion", "share",
+  "shellMinimizer", "shellPath", "showHardwareCursor", "snapcompact",
+  "speech", "speechgen", "spelling", "startup", "statusLine", "steeringMode",
+  "stt", "symbolPreset", "task", "tasks", "temperature", "terminal",
+  "textVerbosity", "theme", "thinkingBudgets", "tier", "title", "todo",
+  "topK", "topP", "treeFilterMode", "tts", "ttsr", "tui", "update", "vault",
+  "web_search", "workspace", "worktree",
+] as const;
+
 export const ADAPTER_SCHEMA_SNAPSHOTS: Record<AgentId, VendorSchemaSnapshot> = {
   "claude-code": {
     version: "claude-code-settings-2026-07-29",
@@ -78,9 +108,10 @@ export const ADAPTER_SCHEMA_SNAPSHOTS: Record<AgentId, VendorSchemaSnapshot> = {
     }),
   },
   omp: {
-    version: "omp-config-2026-07-31",
+    version: "omp-config-2026-08-27",
     source: "https://github.com/can1357/oh-my-pi/blob/main/docs/config-usage.md",
     schema: objectSchema({
+      ...Object.fromEntries(OMP_SETTINGS_KEYS.map((key) => [key, {}])),
       agents: { type: "object" },
       extensions: { type: "array", items: { type: "string" } },
       hooks: { type: "object" },
