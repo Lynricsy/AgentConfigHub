@@ -8,6 +8,8 @@
 
 AgentConfigHub 是面向个人部署的单实例配置控制平面。服务端是唯一事实源：管理员在密码保护的 Web UI 中为命名配置组创建各 Agent 配置，以配置组为边界发布不可变版本，再由获批设备通过独立 CLI 拉取。客户端从不上传本机 Agent 配置。
 
+已部署实例的配置管理见 [Agent 操作手册（UltraServerUS）](docs/agent-operations.zh-CN.md)：新增文件、编辑配置、密钥绑定与轮换、共享指令/Skill、发布验证和回滚。
+
 ## 为什么选择 AgentConfigHub
 
 不同 AI 编程 Agent 使用不同文件、根目录、格式与认证约定。手工复制配置容易造成漂移、秘密意外泄露和破坏性覆盖。AgentConfigHub 在保留各 Agent 原生格式的同时，提供明确的统一发布边界。

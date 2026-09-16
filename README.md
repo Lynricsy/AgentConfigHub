@@ -8,6 +8,8 @@
 
 AgentConfigHub is a personal, single-instance configuration control plane. Its server is the only source of truth: administrators create Agent configurations inside named configuration groups in a password-protected Web UI, publish each group as an immutable release, and approved devices pull those releases with a standalone CLI. Clients never upload local agent configuration.
 
+中文运维指南：[Agent 操作手册（UltraServerUS）](docs/agent-operations.zh-CN.md)，覆盖文件、配置、密钥、共享资源、发布与回滚。
+
 ## Why AgentConfigHub
 
 AI coding agents use different files, roots, formats, and authentication conventions. Copying configuration by hand makes drift, accidental secret exposure, and destructive overwrites likely. AgentConfigHub provides one explicit release boundary while retaining each agent's native file format.
