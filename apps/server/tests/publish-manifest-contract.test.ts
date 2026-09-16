@@ -53,12 +53,12 @@ describe("release manifest compatibility contract", () => {
       codex: 2,
       opencode: 2,
       pi: 2,
-      omp: 4,
+      omp: 5,
       grok: 2,
     });
-    expect(manifest.minCliVersion).toBe("0.2.2");
+    expect(manifest.minCliVersion).toBe("0.2.3");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.2.2" });
+      .toEqual({ floor: "0.2.3" });
     database.native.close();
   });
 
@@ -85,10 +85,10 @@ describe("release manifest compatibility contract", () => {
     const publish = new PublishService(database, blobs, new SecretBindingResolver(database, masterKey));
     const { manifest } = await publish.publish(configSet.id, revision);
 
-    // 所有 adapter 都新增了 `.env` surface 并提升 revision，任一新 release 都需要当前 CLI。
-    expect(manifest.minCliVersion).toBe("0.2.2");
+    // 服务端使用统一的最低 CLI 版本，即使本次 release 不含 OMP 也不能跳过兼容闸门。
+    expect(manifest.minCliVersion).toBe("0.2.3");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.2.2" });
+      .toEqual({ floor: "0.2.3" });
     database.native.close();
   });
 });

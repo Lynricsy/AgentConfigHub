@@ -72,7 +72,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` 执行浏览器审批的设备配对。自动化可用 `AGENT_CONFIG_HUB_SERVER` 和 `AGENT_CONFIG_HUB_TOKEN` 覆盖本地凭据，令牌无需进入 argv。拉取会校验不可变清单、流式下载并计算哈希、在同文件系统 staging、备份被覆盖/删除的受管文件，再通过持久 journal 提交。
 
-每个发布版本都会记录最低 CLI 版本。所有内置适配器的新 revision 均加入了根目录 `.env` 受管面，因此新发布要求 CLI `0.2.2` 及以上。低版本 CLI 会在改动任何文件之前直接拉取失败。
+每个发布版本都会记录最低 CLI 版本。OMP adapter revision 5 新增了 `omp-notify.json` 受管面，新发布要求 CLI `0.2.3` 及以上；旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配，升级后应拉取由新版服务端重新发布的 OMP 配置，历史 OMP revision 4 的 Release 不能直接用新版 CLI 安装。
 
 ## 运维
 
@@ -83,6 +83,8 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 ## 支持的 Agent
 
 内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。每个适配器都显式声明自己管理的文件面，包括经过 dotenv 校验的根目录 `.env` 文件。OMP 还覆盖 `config.yml`、`models.yml`、`keybindings.yml`/`.json`、`mcp.json`、各 `*.md` 指令文件，以及 `skills`、`commands`、`rules`、`prompts`、`role-prompts`、`instructions`、`hooks`、`tools`、`extensions` 目录。
+
+OMP 还支持根目录 `omp-notify.json`，按 JSON 校验，可使用完整标量 `{{secret:SLOT_NAME}}` 配置 Telegram 凭据；不放宽其他根目录 JSON 文件的路径限制。
 
 ## 架构
 

@@ -138,6 +138,8 @@ adapters = api("GET", "/api/v1/adapters")
 
 OMP 常用受管文件包括 `.env`、`config.yml`、`models.yml`、`mcp.json`、`keybindings.yml`/`.json`，以及 `rules/`、`role-prompts/`、`commands/`、`skills/`、`extensions/` 等目录下的文件。`agent.db`、会话、缓存、`node_modules` 等运行时状态不能上传。标有 `reserved: true` 的文件由共享资源生成；OMP 的 `AGENTS.md` 要按第 6 节编辑，不能作为普通文件上传。
 
+OMP adapter revision 5 起增加根目录 `omp-notify.json`，按 JSON 校验，Telegram 凭据可使用第 5 节的完整标量 secret 占位符。该版本对应 CLI `0.2.3`；操作前仍以线上 `/api/v1/adapters` 为准，旧部署不接受此路径。CLI 要求适配器 revision 精确匹配，应先准备新版 CLI、部署新版服务端并发布新 Release，再让客户端拉取；不要让新版 CLI 直接拉取旧 OMP revision 4 的 Release。
+
 ### 3.2 校验、上传 Blob、创建文件
 
 以下例子只适用于用户要求**为已有 OMP 配置新增 UTF-8 文本文件**。先准备已审阅、无明文密钥的本地文件；运行时输入目标相对路径、该本地文件的路径和 MIME 类型。JSON 用 `application/json`，YAML 用 `application/yaml`，TOML 用 `application/toml`，Markdown 用 `text/markdown`，`.env` 用 `text/plain`。

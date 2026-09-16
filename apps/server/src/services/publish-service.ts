@@ -25,9 +25,9 @@ import type { EncryptedBlobStore } from "../storage/encrypted-blob-store.js";
 import { RevisionConflictError } from "./draft-revision.js";
 import { SecretBindingResolver, type ResolvedSecret } from "./secret-binding-resolver.js";
 
-// 所有内置 adapter 都在当前版本新增了根目录 `.env` surface 并提升 revision；
+// OMP adapter revision 5 新增 omp-notify.json 受管面；
 // 旧 CLI 不识别该契约，因此任何新 release 都必须在写文件前拒绝旧版本。
-const MIN_CLI_VERSION = "0.2.2";
+const MIN_CLI_VERSION = "0.2.3";
 
 interface ConfigSetRow {
   id: string;

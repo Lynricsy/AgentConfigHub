@@ -72,7 +72,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` performs browser-approved device pairing. `AGENT_CONFIG_HUB_SERVER` and `AGENT_CONFIG_HUB_TOKEN` override stored credentials for automation without placing the token in argv. A pull validates the immutable manifest, streams and hashes downloads, stages same-filesystem replacements, backs up overwritten/deleted managed files, and commits through a durable journal.
 
-Each release records a minimum CLI version. New releases require CLI `0.2.2` or newer because every built-in adapter revision now includes the root `.env` managed surface. An older CLI fails the pull before touching any file.
+每个发布版本都会记录最低 CLI 版本。OMP adapter revision 5 新增了 `omp-notify.json` 受管面，新发布要求 CLI `0.2.3` 及以上；旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配，升级后应拉取由新版服务端重新发布的 OMP 配置，历史 OMP revision 4 的 Release 不能直接用新版 CLI 安装。
 
 ## Operations
 
@@ -83,6 +83,8 @@ Each release records a minimum CLI version. New releases require CLI `0.2.2` or 
 ## Supported Agents
 
 The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages, including a root `.env` file with dotenv validation. OMP also covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `instructions`, `hooks`, `tools`, and `extensions` directories.
+
+OMP 还支持根目录 `omp-notify.json`，按 JSON 校验，可使用完整标量 `{{secret:SLOT_NAME}}` 配置 Telegram 凭据；不放宽其他根目录 JSON 文件的路径限制。
 
 ## Architecture
 
