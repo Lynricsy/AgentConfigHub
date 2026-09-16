@@ -269,6 +269,16 @@ credential_id = credential["id"]
 
 根目录 `.env` 同样可托管，例如 `SERVICE_API_KEY="{{secret:SERVICE_API_KEY}}"`。不要假设 Agent 会自动读取任意 `.env`；应用如何使用该变量须另行核对。
 
+#### 登记设备名称
+
+在 `omp-notify.json` 中加入 `"device_name": "{{device:name}}"`，通知即可使用 `agent-config-hub login --name` 登记的名称。这里不是本机 hostname，也不是 automation token 的 label。已有设备无需重新登录或在本地补存名称；CLI 使用当前令牌请求 `GET /api/v1/cli/device`，设备令牌返回 `{"device":{"name":"登记名称"}}`，automation 返回 `{"device":null}`，无效令牌返回现有格式的 401 错误。
+
+设备变量仅支持 JSON、JSONC、YAML、TOML、dotenv 的完整字符串值。不能使用 `"前缀{{device:name}}"`、变量键名、变量注释或 `{{device:hostname}}` 等未知变量。与 secret 变量同文件时，发布阶段只记录原始模板中的设备位置，秘密值或设备名称里的占位符文本都保持字面值，不递归解释。
+
+部署新版服务端（含数据库迁移 `0004_device_name_slots`）后再发布模板。含变量的 Release 最低 CLI 版本为 `0.2.4`；无变量仍为 `0.2.3`，OMP adapter revision 不变，仍为 5。发布内容及原始 hash 不因设备变化：文件清单可附带 `deviceNameSlots`，每项包含秘密替换后 UTF-16 `start`/`end` 偏移与 `format`。CLI 验证原始大小/hash 后安全渲染，dry-run 也执行校验但不改目标；状态和备份对应实际安装字节。重复 pull 应为 unchanged，status 应为 clean，同一 Release 改用另一设备令牌会计划替换设备名。
+
+需要该变量的配置不能用 automation token 验证安装，请使用经用户审批的设备令牌；不含设备变量的配置仍可使用自动化令牌。dotenv 使用保留原文的引号，不当作 shell 代码；无法无损表达的名称（冲突引号组合、回车、NUL）会在写任何目标前明确失败。JSON/JSONC/YAML/TOML 会转义引号、反斜杠和控制字符。
+
 ### 5.3 绑定到指定配置组或指定 Agent
 
 先重新读配置组详情，审查是否发生并发变化，再取版本。以下变量 `credential_id` 来自新建结果或已核对的现有凭据 ID；输入槽名后绑定为配置组默认值：

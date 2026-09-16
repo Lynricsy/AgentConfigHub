@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { parseEnv } from "node:util";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ReleaseManifestV1, type ReleaseFileV1 } from "@agent-config-hub/protocol";
 
@@ -17,6 +18,7 @@ import {
 import { copyFileDurable } from "../filesystem.js";
 import { ensurePrivateDirectory, localPaths, removePrivatePath, writePrivateJson } from "../local-store.js";
 import { loadStates } from "../state.js";
+import { runCli } from "../commands.js";
 import { applyRelease, recoverInterruptedTransactions, type PullOptions } from "./apply-release.js";
 
 let temporary: string | undefined;
@@ -61,8 +63,9 @@ function manifest(releaseNumber: number, files: ReleaseFileV1[]) {
   });
 }
 
-function fakeApi(contents: Record<string, string>, calls: string[] = []): ApiClient {
+function fakeApi(contents: Record<string, string>, calls: string[] = [], device: { name: string } | null = null): ApiClient {
   return {
+    async device() { return device; },
     async releaseFile(_releaseId: string, fileId: string) {
       calls.push(fileId);
       const content = contents[fileId];
@@ -107,6 +110,77 @@ function options(
 }
 
 describe("applyRelease", () => {
+  it("同一发布按登记设备名安装，重复拉取保持不变并报告 clean", async () => {
+    const { root, paths } = await fixture();
+    const content = '{"name":"{{device:name}}","secret":"{{device:name}}"}';
+    const start = content.indexOf('"{{device:name}}"');
+    const file = { ...releaseFile("settings", "settings.json", content),
+      deviceNameSlots: [{ start, end: start + '"{{device:name}}"'.length, format: "json" as const }] };
+    const release = manifest(1, [file]);
+    const firstName = '设备"甲\n\\路径{{device:name}}';
+    const first = options(root, paths, release, fakeApi({ settings: content }, [], { name: firstName }));
+    const preview = await applyRelease({ ...first, dryRun: true });
+    expect(await readdir(root)).toEqual([]);
+    const result = await applyRelease(first);
+    expect(result.actions).toEqual(preview.actions);
+    expect(JSON.parse(await readFile(join(root, "settings.json"), "utf8"))).toEqual({ name: firstName, secret: "{{device:name}}" });
+    expect((await applyRelease(first)).actions[0]?.action).toBe("unchanged");
+    const output = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      await runCli(["status", "--profile", "workstation"], { AGENT_CONFIG_HUB_SERVER: "https://hub.example" }, paths);
+      expect(output.mock.calls.map(([line]) => line).join("")).toContain("clean settings.json");
+    } finally { output.mockRestore(); }
+    const second = await applyRelease(options(root, paths, release, fakeApi({ settings: content }, [], { name: "设备乙" })));
+    expect(second.actions[0]?.action).toBe("replace");
+    expect(JSON.parse(await readFile(join(root, "settings.json"), "utf8")).name).toBe("设备乙");
+    await restoreBackup(paths, second.backupId!);
+    expect(JSON.parse(await readFile(join(root, "settings.json"), "utf8")).name).toBe(firstName);
+  });
+
+  it("设备变量缺少身份或原始哈希错误时不修改目标，包括 dry-run", async () => {
+    const { root, paths } = await fixture();
+    const content = '{"name":"{{device:name}}"}';
+    const start = content.indexOf('"{{device:name}}"');
+    const file = { ...releaseFile("settings", "settings.json", content),
+      deviceNameSlots: [{ start, end: start + '"{{device:name}}"'.length, format: "json" as const }] };
+    const release = manifest(1, [file]);
+    await writeFile(join(root, "settings.json"), "原有文件");
+    const calls: string[] = [];
+    await expect(applyRelease(options(root, paths, release, fakeApi({ settings: content }, calls)))).rejects.toThrow("自动化令牌");
+    expect(calls).toEqual([]);
+    for (const dryRun of [true, false]) {
+      await expect(applyRelease(options(root, paths, release, fakeApi({ settings: content.replace("name", "NAME") }, [], { name: "设备甲" }), { dryRun }))).rejects.toThrow("SHA-256");
+      expect(await readFile(join(root, "settings.json"), "utf8")).toBe("原有文件");
+    }
+  });
+
+  it("dotenv 无损保留名称，不可表示时在写入前拒绝", async () => {
+    const { root, paths } = await fixture();
+    const content = 'DEVICE="{{device:name}}"\n';
+    const start = content.indexOf('"{{device:name}}"');
+    const file = { ...releaseFile("env", ".env", content),
+      deviceNameSlots: [{ start, end: start + '"{{device:name}}"'.length, format: "dotenv" as const }] };
+    const name = '设备"甲\n\\n文字';
+    await applyRelease(options(root, paths, manifest(1, [file]), fakeApi({ env: content }, [], { name })));
+    expect(parseEnv(await readFile(join(root, ".env"), "utf8")).DEVICE).toBe(name);
+    await expect(applyRelease(options(root, paths, manifest(1, [file]), fakeApi({ env: content }, [], { name: `双"单'引号` })))).rejects.toThrow("dotenv");
+    expect(parseEnv(await readFile(join(root, ".env"), "utf8")).DEVICE).toBe(name);
+  });
+
+  it("相同原始摘要仅下载一次但按各文件计划独立渲染", async () => {
+    const { root, paths } = await fixture();
+    const content = '{"name":"{{device:name}}"}';
+    const start = content.indexOf('"{{device:name}}"');
+    const marked = { ...releaseFile("settings", "settings.json", content),
+      deviceNameSlots: [{ start, end: start + '"{{device:name}}"'.length, format: "json" as const }] };
+    const plain = releaseFile("literal", "rules/literal.md", content);
+    const calls: string[] = [];
+    await applyRelease(options(root, paths, manifest(1, [marked, plain]), fakeApi({ settings: content, literal: content }, calls, { name: "设备甲" })));
+    expect(calls).toEqual(["settings"]);
+    expect(JSON.parse(await readFile(join(root, "settings.json"), "utf8")).name).toBe("设备甲");
+    expect(await readFile(join(root, "rules/literal.md"), "utf8")).toBe(content);
+  });
+
   it("streams each digest once, writes independent files, modes, state, and backup", async () => {
     const { root, paths } = await fixture();
     const content = "shared bytes";

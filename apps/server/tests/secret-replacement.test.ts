@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 
 import { replaceSecretScalars, type SecretFormat } from "../src/security/secret-replacement.js";
 
@@ -66,5 +67,63 @@ describe("replaceSecretScalars", () => {
     const result = await replaceSecretScalars(`token = "${secret}"`, "toml", () => undefined);
     expect(result.diagnostics).toMatchObject([{ code: "INLINE_SECRET_DETECTED" }]);
     expect(JSON.stringify(result.diagnostics)).not.toContain(secret);
+  });
+
+  it("设备计划只包含模板标量，不重新解释秘密值", async () => {
+    const result = await replaceSecretScalars(
+      '{"secret":"{{secret:KEY}}","name":"{{device:name}}","other":"{{device:name}}"}',
+      "json", () => '带引号"和换行\n{{device:name}}',
+    );
+    expect(result.diagnostics).toEqual([]);
+    expect(result.deviceNameSlots).toHaveLength(2);
+    let installed = result.text;
+    const name = '设备"甲\n{{device:name}}';
+    for (const slot of result.deviceNameSlots.toReversed()) {
+      expect(installed.slice(slot.start, slot.end)).toBe('"{{device:name}}"');
+      installed = installed.slice(0, slot.start) + JSON.stringify(name) + installed.slice(slot.end);
+    }
+    expect(JSON.parse(installed)).toEqual({ secret: '带引号"和换行\n{{device:name}}', name, other: name });
+  });
+
+  it("设备块标量规范化后保留 YAML 后续节点边界", async () => {
+    const result = await replaceSecretScalars(
+      'device: |-\r\n  {{device:name}}\r\nother: value\r\nsecond: "{{device:name}}"\r\n',
+      "yaml", () => undefined,
+    );
+    expect(result.diagnostics).toEqual([]);
+    let installed = result.text;
+    for (const slot of result.deviceNameSlots.toReversed()) {
+      installed = installed.slice(0, slot.start) + JSON.stringify("登记设备") + installed.slice(slot.end);
+    }
+    expect(parseYaml(installed)).toEqual({ device: "登记设备", other: "value", second: "登记设备" });
+  });
+
+  it("拒绝设备变量的拼接、键名、注释和未知变量", async () => {
+    for (const source of [
+      '{"name":"前缀{{device:name}}"}',
+      '{"{{device:name}}":"value"}',
+      '{"name":"{{device:hostname}}"}',
+      '// {{device:name}}\n{"name":"value"}',
+      '{"name":"{{device:unknown"}',
+    ]) {
+      const result = await replaceSecretScalars(source, "jsonc", () => undefined);
+      expect(result.diagnostics.some(({ code }) => code === "DEVICE_PLACEHOLDER_NOT_SCALAR")).toBe(true);
+    }
+    const blockComment = await replaceSecretScalars(
+      'device: |- # {{device:hostname}}\n  {{device:name}}\n',
+      "yaml", () => undefined,
+    );
+    expect(blockComment.diagnostics.some(({ code }) => code === "DEVICE_PLACEHOLDER_NOT_SCALAR")).toBe(true);
+  });
+
+  it("所有结构化格式都标记完整设备标量", async () => {
+    for (const fixture of fixtures) {
+      const result = await replaceSecretScalars(fixture.source.replace("{{secret:MODEL_API_KEY}}", "{{device:name}}"), fixture.format, () => undefined);
+      expect(result.diagnostics).toEqual([]);
+      const slot = result.deviceNameSlots[0]!;
+      expect(result.text.slice(slot.start, slot.end)).toBe('"{{device:name}}"');
+      expect(slot.format).toBe(fixture.format);
+      expect(result.sensitive).toBe(false);
+    }
   });
 });

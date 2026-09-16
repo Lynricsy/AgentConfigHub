@@ -47,6 +47,12 @@ export const ReleaseFileV1 = z.object({
   size: z.number().int().nonnegative(),
   executable: z.boolean(),
   sensitive: z.boolean(),
+  // UTF-16 偏移，指向服务端秘密渲染后原始内容中的完整规范化字符串标量。
+  deviceNameSlots: z.array(z.object({
+    start: z.number().int().nonnegative(),
+    end: z.number().int().positive(),
+    format: z.enum(["json", "jsonc", "yaml", "toml", "dotenv"]),
+  }).strict()).min(1).optional(),
 });
 
 export const ReleaseManifestV1 = z.object({

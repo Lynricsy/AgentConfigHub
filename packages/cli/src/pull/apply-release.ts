@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { chmod, lstat, mkdir, readdir, readFile, rm, rmdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -26,6 +26,7 @@ import {
   copyFileDurable,
   inspectTarget,
   sha256File,
+  readVerifiedResponse,
   streamResponseToFile,
   type ExistingTarget,
 } from "../filesystem.js";
@@ -49,6 +50,9 @@ interface PlannedFile {
   readonly root: string;
   readonly destination: string;
   readonly partitionKey: string;
+  readonly installedSha256: string;
+  readonly installedSize: number;
+  readonly renderedBytes?: Buffer;
 }
 
 interface PlannedMutation {
@@ -293,14 +297,69 @@ function makeBackupId(): string {
 
 function mutationAction(mutation: PlannedMutation): PullAction {
   if (mutation.action === "remove") return { action: "remove", path: mutation.destination, size: 0, sha256: "", sensitive: false };
-  const file = mutation.file!.manifest;
+  const file = mutation.file!;
   return {
     action: mutation.prior.kind === "missing" ? "add" : "replace",
     path: mutation.destination,
-    size: file.size,
-    sha256: file.contentSha256,
-    sensitive: file.sensitive,
+    size: file.installedSize,
+    sha256: file.installedSha256,
+    sensitive: file.manifest.sensitive,
   };
+}
+
+function encodeDeviceName(name: string, format: NonNullable<ReleaseFileV1["deviceNameSlots"]>[number]["format"]): string {
+  if (!name.isWellFormed()) throw new Error("设备名称包含无效的 Unicode 字符。");
+  if (format === "dotenv") {
+    // dotenv 不通用地解码 JSON 转义；选取不会改变原文的引号，否则明确失败。
+    if (name.includes("\0") || name.includes("\r")) throw new Error("设备名称无法无损表示为 dotenv 字符串。");
+    if (!name.includes("'")) return `'${name}'`;
+    if (!name.includes('"') && !/\\[nr]/.test(name)) return `"${name}"`;
+    throw new Error("设备名称包含 dotenv 无法无损表示的引号组合。");
+  }
+  // JSON 字符串也是 YAML/TOML 基本字符串；额外转义 TOML 禁止的 DEL。
+  return JSON.stringify(name).replace(/[\u007f\u0085\u2028\u2029]/g, (character) =>
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
+}
+
+function renderDeviceName(bytes: Buffer, file: ReleaseFileV1, name: string): Buffer {
+  const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  const slots = file.deviceNameSlots!;
+  let previousEnd = 0;
+  for (const slot of slots) {
+    if (slot.start < previousEnd || slot.end <= slot.start || slot.end > text.length || text.slice(slot.start, slot.end) !== '"{{device:name}}"') {
+      throw new Error("设备变量渲染计划与已验证的原始文件不匹配。");
+    }
+    previousEnd = slot.end;
+  }
+  let rendered = text;
+  for (const slot of slots.toReversed()) {
+    rendered = rendered.slice(0, slot.start) + encodeDeviceName(name, slot.format) + rendered.slice(slot.end);
+  }
+  return Buffer.from(rendered, "utf8");
+}
+
+async function prepareDeviceFiles(options: PullOptions): Promise<{ rendered: Map<string, Buffer>; originals: Map<string, Buffer> }> {
+  const marked = options.manifest.files.filter((file) => file.deviceNameSlots);
+  const rendered = new Map<string, Buffer>();
+  const originals = new Map<string, Buffer>();
+  if (!marked.length) return { rendered, originals };
+  const device = await options.api.device();
+  if (!device) throw new Error("此配置需要登记设备名称；自动化令牌没有设备身份，请使用设备令牌。");
+  // 预渲染先于安装事务；只在内存保留已验证原文，避免中断后遗留明文秘密。
+  for (const file of marked) {
+    let bytes = originals.get(file.contentSha256);
+    if (!bytes) {
+      bytes = await readVerifiedResponse(
+        await options.api.releaseFile(options.manifest.releaseId, file.fileId),
+        file.contentSha256,
+        file.size,
+      );
+      originals.set(file.contentSha256, bytes);
+    }
+    if (bytes.length !== file.size) throw new Error("相同原始摘要的文件大小不一致。");
+    rendered.set(file.fileId, renderDeviceName(bytes, file, device.name));
+  }
+  return { rendered, originals };
 }
 
 export async function applyRelease(options: PullOptions): Promise<PullResult> {
@@ -308,12 +367,21 @@ export async function applyRelease(options: PullOptions): Promise<PullResult> {
   const pathContext = clientContext(options);
   const currentStates = await loadStates(options.paths);
   const relevantStates = currentStates.filter((state) => state.serverOrigin === options.serverOrigin && state.profile === options.profile);
+  const renderedFiles = await prepareDeviceFiles(options);
   const plannedFiles: PlannedFile[] = options.manifest.files.map((file) => {
     if (!options.manifest.includedAgents.includes(file.agentId)) throw new Error(`${file.fileId} belongs to an excluded Agent.`);
     const adapter = getAdapter(file.agentId);
     const root = adapter.resolveRoot(file.target.root, pathContext);
     const partitionKey = statePartitionKey({ serverOrigin: options.serverOrigin, profile: options.profile, agentId: file.agentId, rootId: file.target.root, resolvedRoot: root });
-    return { manifest: file, root, destination: resolveTargetPath(adapter, file.target, pathContext), partitionKey };
+    const renderedBytes = renderedFiles.rendered.get(file.fileId) ?? renderedFiles.originals.get(file.contentSha256);
+    const originalBytes = renderedFiles.originals.get(file.contentSha256);
+    if (originalBytes && originalBytes.length !== file.size) throw new Error("相同原始摘要的文件大小不一致。");
+    return {
+      manifest: file, root, destination: resolveTargetPath(adapter, file.target, pathContext), partitionKey,
+      installedSha256: renderedBytes ? createHash("sha256").update(renderedBytes).digest("hex") : file.contentSha256,
+      installedSize: renderedBytes?.length ?? file.size,
+      ...(renderedBytes ? { renderedBytes } : {}),
+    };
   });
   assertNoResolvedTargetCollisions(plannedFiles.map(({ manifest }) => ({ adapter: getAdapter(manifest.agentId), target: manifest.target })), pathContext);
 
@@ -331,8 +399,8 @@ export async function applyRelease(options: PullOptions): Promise<PullResult> {
 
   for (const file of plannedFiles) {
     const prior = await inspectTarget(file.root, file.destination, options.replaceSymlink);
-    if (prior.kind === "file" && await sha256File(file.destination) === file.manifest.contentSha256) {
-      actions.push({ action: "unchanged", path: file.destination, size: file.manifest.size, sha256: file.manifest.contentSha256, sensitive: file.manifest.sensitive });
+    if (prior.kind === "file" && await sha256File(file.destination) === file.installedSha256) {
+      actions.push({ action: "unchanged", path: file.destination, size: file.installedSize, sha256: file.installedSha256, sensitive: file.manifest.sensitive });
     } else {
       const mutation: PlannedMutation = { action: "write", root: file.root, destination: file.destination, prior, file };
       mutations.push(mutation);
@@ -397,7 +465,7 @@ export async function applyRelease(options: PullOptions): Promise<PullResult> {
   try {
     for (const mutation of mutations.filter(({ action }) => action === "write")) {
       const file = mutation.file!;
-      let source = downloaded.get(file.manifest.contentSha256);
+      let source = downloaded.get(file.installedSha256);
       if (!source) {
         const stageDirectory = join(
           await nearestExistingDirectory(file.root),
@@ -405,19 +473,19 @@ export async function applyRelease(options: PullOptions): Promise<PullResult> {
         );
         stageDirectories.add(stageDirectory);
         await persistJournal();
-        source = join(stageDirectory, "downloads", file.manifest.contentSha256);
+        source = join(stageDirectory, "downloads", file.installedSha256);
         await streamResponseToFile(
-          await options.api.releaseFile(options.manifest.releaseId, file.manifest.fileId),
+          file.renderedBytes ? new Response(new Uint8Array(file.renderedBytes)) : await options.api.releaseFile(options.manifest.releaseId, file.manifest.fileId),
           source,
-          file.manifest.contentSha256,
-          file.manifest.size,
+          file.installedSha256,
+          file.installedSize,
         );
-        downloaded.set(file.manifest.contentSha256, source);
+        downloaded.set(file.installedSha256, source);
       }
     }
     for (const mutation of mutations.filter(({ action }) => action === "write")) {
       const file = mutation.file!;
-      const source = downloaded.get(file.manifest.contentSha256);
+      const source = downloaded.get(file.installedSha256);
       if (!source) throw new Error(`Missing staged bytes for ${file.manifest.fileId}.`);
       await ensureDestinationDirectory(
         file.root,
@@ -457,10 +525,10 @@ export async function applyRelease(options: PullOptions): Promise<PullResult> {
           releaseNumber: options.manifest.releaseNumber,
           backupId,
           installedAt,
-          files: files.map(({ manifest }) => ({
+          files: files.map(({ manifest, installedSha256, installedSize }) => ({
             relativePath: manifest.target.relativePath,
-            installedSha256: manifest.contentSha256,
-            size: manifest.size,
+            installedSha256,
+            size: installedSize,
             executable: manifest.executable,
             sensitive: manifest.sensitive,
           })),

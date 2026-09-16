@@ -81,6 +81,8 @@ describe("resource binding migration", () => {
       WHERE release_id = 'release-1' ORDER BY agent_id
     `).all()).toEqual([{ agentId: "claude-code" }, { agentId: "omp" }]);
 
+    await applyMigration(database, "0004_device_name_slots.sql");
+
     const masterKey = await loadMasterKey({
       AGENT_CONFIG_HUB_MASTER_KEY: randomBytes(32).toString("base64"),
     });

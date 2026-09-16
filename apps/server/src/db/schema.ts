@@ -217,6 +217,7 @@ export const releaseFiles = sqliteTable("release_files", {
   size: integer("size", { mode: "number" }).notNull(),
   executable: integer("executable", { mode: "boolean" }).notNull(),
   sensitive: integer("sensitive", { mode: "boolean" }).notNull(),
+  deviceNameSlots: text("device_name_slots"),
 }, (table) => [uniqueIndex("release_files_target_idx").on(table.releaseId, table.agentId, table.rootId, table.relativePath)]);
 
 export const releaseSecretBindings = sqliteTable("release_secret_bindings", {

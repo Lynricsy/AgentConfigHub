@@ -99,7 +99,7 @@ function releaseManifest(database: DatabaseContext, slug: string, requestedAgent
   const placeholders = includedAgents.map(() => "?").join(", ");
   const files = includedAgents.length === 0 ? [] : database.native.prepare(`
     SELECT id AS fileId, agent_id AS agentId, root_id AS root, relative_path AS relativePath,
-      blob_sha256 AS contentSha256, size, executable, sensitive
+      blob_sha256 AS contentSha256, size, executable, sensitive, device_name_slots AS deviceNameSlots
     FROM release_files
     WHERE release_id = ? AND agent_id IN (${placeholders})
     ORDER BY agent_id, root_id, relative_path
@@ -113,6 +113,7 @@ function releaseManifest(database: DatabaseContext, slug: string, requestedAgent
       size: number;
       executable: number;
       sensitive: number;
+      deviceNameSlots: string | null;
     };
     return {
       fileId: file.fileId,
@@ -122,6 +123,7 @@ function releaseManifest(database: DatabaseContext, slug: string, requestedAgent
       size: file.size,
       executable: Boolean(file.executable),
       sensitive: Boolean(file.sensitive),
+      ...(file.deviceNameSlots ? { deviceNameSlots: JSON.parse(file.deviceNameSlots) } : {}),
     };
   });
   return ReleaseManifestV1.parse({
@@ -255,6 +257,10 @@ export function registerApiRoutes(server: FastifyInstance, dependencies: ApiDepe
       return reply.header("ETag", `"${created.revision}"`).code(201).send(created);
     },
   );
+
+  server.get("/api/v1/cli/device", async (request, reply) => reply
+    .header("Cache-Control", "no-store")
+    .send({ device: dependencies.devices.deviceIdentity(bearerToken(request)) }));
 
   server.get("/api/v1/cli/config-sets", { preHandler: requirePull }, async (_request, reply) => reply
     .header("Cache-Control", "no-store")

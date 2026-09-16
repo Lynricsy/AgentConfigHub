@@ -29,6 +29,13 @@
       "when": 1785471766035,
       "tag": "0003_eminent_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1789603200000,
+      "tag": "0004_device_name_slots",
+      "breakpoints": true
     }
   ]
 }

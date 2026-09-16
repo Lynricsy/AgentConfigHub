@@ -78,6 +78,7 @@ interface PreparedOutput extends CandidateFile {
   blobSha256: string;
   size: number;
   sensitive: boolean;
+  deviceNameSlots?: ReleaseManifest["files"][number]["deviceNameSlots"];
 }
 
 interface FrozenOverlay {
@@ -349,7 +350,7 @@ export class PublishService {
       });
     }
 
-    const rendered: { candidate: CandidateFile; text: string | null; sensitive: boolean }[] = [];
+    const rendered: { candidate: CandidateFile; text: string | null; sensitive: boolean; deviceNameSlots?: ReleaseManifest["files"][number]["deviceNameSlots"] }[] = [];
     for (const candidate of candidates) {
       const format = secretFormat(candidate.format);
       if (candidate.text !== null && format) {
@@ -359,8 +360,13 @@ export class PublishService {
           (slot) => resolvedByAgent[candidate.agentId]?.[slot]?.value,
         );
         diagnostics.push(...replacement.diagnostics.map((diagnostic) => ({ ...diagnostic, target: candidate.target })));
-        rendered.push({ candidate, text: replacement.text, sensitive: replacement.sensitive });
+        rendered.push({ candidate, text: replacement.text, sensitive: replacement.sensitive,
+          ...(replacement.deviceNameSlots.length ? { deviceNameSlots: [...replacement.deviceNameSlots] } : {}) });
       } else {
+        if (candidate.text?.includes("{{device:")) diagnostics.push({
+          code: "DEVICE_PLACEHOLDER_UNSUPPORTED_FORMAT", severity: "error",
+          message: "设备变量只支持 JSON、JSONC、YAML、TOML 和 dotenv 字符串值。", target: candidate.target,
+        });
         rendered.push({ candidate, text: candidate.text, sensitive: false });
       }
     }
@@ -370,7 +376,8 @@ export class PublishService {
     for (const output of rendered) {
       if (output.text !== null) {
         const blob = await this.#blobStore.put(Readable.from(Buffer.from(output.text, "utf8")), output.candidate.mediaType);
-        prepared.push({ ...output.candidate, blobSha256: blob.sha256, size: blob.size, sensitive: output.sensitive });
+        prepared.push({ ...output.candidate, blobSha256: blob.sha256, size: blob.size, sensitive: output.sensitive,
+          ...(output.deviceNameSlots ? { deviceNameSlots: output.deviceNameSlots } : {}) });
       } else {
         const sha256 = output.candidate.sourceBlobSha256!;
         const descriptor = await this.#blobStore.verify(sha256);
@@ -425,7 +432,7 @@ export class PublishService {
       const adapterRevisions = Object.fromEntries(
         Object.entries(adapterRegistry).map(([agentId, adapter]) => [agentId, adapter.revision]),
       );
-      const minCliVersion = MIN_CLI_VERSION;
+      const minCliVersion = prepared.some((output) => output.deviceNameSlots) ? "0.2.4" : MIN_CLI_VERSION;
       this.#database.native.prepare(`
         INSERT INTO releases (
           id, config_set_id, release_number, draft_revision, enabled_agents,
@@ -458,8 +465,8 @@ export class PublishService {
       );
       const insertOutput = this.#database.native.prepare(`
         INSERT INTO release_files (
-          id, release_id, agent_id, root_id, relative_path, blob_sha256, size, executable, sensitive
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, release_id, agent_id, root_id, relative_path, blob_sha256, size, executable, sensitive, device_name_slots
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const manifestFiles: ReleaseManifest["files"] = [];
       for (const output of prepared.toSorted((left, right) =>
@@ -470,6 +477,7 @@ export class PublishService {
         insertOutput.run(
           fileId, releaseId, output.agentId, output.target.root, output.target.relativePath,
           output.blobSha256, output.size, Number(output.executable), Number(output.sensitive),
+          output.deviceNameSlots ? JSON.stringify(output.deviceNameSlots) : null,
         );
         manifestFiles.push({
           fileId,
@@ -479,6 +487,7 @@ export class PublishService {
           size: output.size,
           executable: output.executable,
           sensitive: output.sensitive,
+          ...(output.deviceNameSlots ? { deviceNameSlots: output.deviceNameSlots } : {}),
         });
       }
       const insertResource = this.#database.native.prepare(`
@@ -678,15 +687,15 @@ export class PublishService {
       );
       const cloneOutput = this.#database.native.prepare(`
         INSERT INTO release_files (
-          id, release_id, agent_id, root_id, relative_path, blob_sha256, size, executable, sensitive
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, release_id, agent_id, root_id, relative_path, blob_sha256, size, executable, sensitive, device_name_slots
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const outputs = this.#database.native.prepare(
         "SELECT * FROM release_files WHERE release_id = ?",
       ).all(sourceReleaseId) as Record<string, unknown>[];
       for (const file of outputs) cloneOutput.run(
         ulid(), releaseId, file.agent_id, file.root_id, file.relative_path,
-        file.blob_sha256, file.size, file.executable, file.sensitive,
+        file.blob_sha256, file.size, file.executable, file.sensitive, file.device_name_slots,
       );
       this.#database.native.prepare(`
         INSERT INTO release_secret_bindings (

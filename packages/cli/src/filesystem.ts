@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { chmod, lstat, mkdir, open, readFile, readlink, rename, rm, symlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { Transform } from "node:stream";
+import { Transform, Writable } from "node:stream";
 
 export interface ExistingTarget {
   readonly kind: "missing" | "file" | "symlink";
@@ -59,6 +59,46 @@ export async function sha256File(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
+function downloadVerifier(expectedSha256: string, expectedSize: number): Transform {
+  const hash = createHash("sha256");
+  let size = 0;
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      size += chunk.length;
+      if (size > expectedSize) {
+        callback(new Error(`Downloaded size ${size} exceeds manifest size ${expectedSize}.`));
+        return;
+      }
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+    flush(callback) {
+      if (size !== expectedSize) {
+        callback(new Error(`Downloaded size ${size} does not match manifest size ${expectedSize}.`));
+        return;
+      }
+      const actualSha256 = hash.digest("hex");
+      callback(actualSha256 === expectedSha256 ? null : new Error(`Downloaded SHA-256 ${actualSha256} does not match manifest.`));
+    },
+  });
+}
+
+export async function readVerifiedResponse(
+  response: Response,
+  expectedSha256: string,
+  expectedSize: number,
+): Promise<Buffer> {
+  if (!response.body) throw new Error("Server returned an empty file stream.");
+  const chunks: Buffer[] = [];
+  await pipeline(response.body, downloadVerifier(expectedSha256, expectedSize), new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      chunks.push(chunk);
+      callback();
+    },
+  }));
+  return chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, expectedSize);
+}
+
 export async function streamResponseToFile(
   response: Response,
   path: string,
@@ -67,22 +107,11 @@ export async function streamResponseToFile(
 ): Promise<void> {
   if (!response.body) throw new Error("Server returned an empty file stream.");
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const hash = createHash("sha256");
-  let size = 0;
-  const verifier = new Transform({
-    transform(chunk: Buffer, _encoding, callback) {
-      size += chunk.length;
-      hash.update(chunk);
-      callback(null, chunk);
-    },
-  });
+  const verifier = downloadVerifier(expectedSha256, expectedSize);
   try {
     await pipeline(response.body, verifier, createWriteStream(path, { flags: "wx", mode: 0o600 }));
     const handle = await open(path, "r+");
     try { await handle.sync(); } finally { await handle.close(); }
-    const actualSha256 = hash.digest("hex");
-    if (size !== expectedSize) throw new Error(`Downloaded size ${size} does not match manifest size ${expectedSize}.`);
-    if (actualSha256 !== expectedSha256) throw new Error(`Downloaded SHA-256 ${actualSha256} does not match manifest.`);
   } catch (error) {
     await rm(path, { force: true });
     throw error;

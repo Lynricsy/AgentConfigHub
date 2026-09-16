@@ -156,6 +156,16 @@ describe("authentication and pull API", () => {
     expect((await server.inject({
       method: "POST", url: "/api/v1/device-authorizations/token", payload: { deviceCode: device.deviceCode },
     })).statusCode).toBe(410);
+    expect((await server.inject({ method: "GET", url: "/api/v1/cli/device" })).statusCode).toBe(401);
+    expect((await server.inject({
+      method: "GET", url: "/api/v1/cli/device", headers: { authorization: `Bearer ${deviceToken}` },
+    })).json()).toEqual({ device: { name: "workstation" } });
+    const secondAuthorization = devices.createAuthorization({ deviceName: '另一台"设备', cliVersion: "0.2.4", ip: "127.0.0.2" });
+    devices.approve(secondAuthorization.userCode);
+    const secondDeviceToken = devices.poll(secondAuthorization.deviceCode, "127.0.0.2");
+    expect((await server.inject({
+      method: "GET", url: "/api/v1/cli/device", headers: { authorization: `Bearer ${secondDeviceToken}` },
+    })).json()).toEqual({ device: { name: '另一台"设备' } });
 
     const configSet = configSets.create({
       name: "Default",
@@ -287,9 +297,13 @@ describe("authentication and pull API", () => {
     expect(automation.statusCode).toBe(201);
     const automationToken = automation.json<{ id: string; token: string }>();
     expect(automationToken.token).toMatch(/^agch_auto_/);
+    expect((await server.inject({
+      method: "GET", url: "/api/v1/cli/device", headers: { authorization: `Bearer ${automationToken.token}` },
+    })).json()).toEqual({ device: null });
 
     const deviceTokenId = devices.list().find((item) => {
-      return typeof item === "object" && item !== null && "kind" in item && item.kind === "device";
+      return typeof item === "object" && item !== null && "kind" in item && item.kind === "device"
+        && "label" in item && item.label === "workstation";
     });
     expect(deviceTokenId).toBeDefined();
     if (!deviceTokenId || typeof deviceTokenId !== "object" || !( "id" in deviceTokenId)

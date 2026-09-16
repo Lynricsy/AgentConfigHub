@@ -82,6 +82,11 @@ export class ApiClient {
     return ConfigSetList.parse(await (await this.#authorized("/api/v1/cli/config-sets")).json());
   }
 
+  async device(): Promise<{ name: string } | null> {
+    return z.object({ device: z.object({ name: z.string().min(1) }).nullable() })
+      .parse(await (await this.#authorized("/api/v1/cli/device")).json()).device;
+  }
+
   async manifest(slug: string, agents: readonly AgentId[]): Promise<Manifest> {
     const query = agents.length > 0 ? `?agents=${encodeURIComponent(agents.join(","))}` : "";
     return ReleaseManifestV1.parse(await (

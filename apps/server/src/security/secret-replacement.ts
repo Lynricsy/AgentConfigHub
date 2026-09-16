@@ -1,5 +1,5 @@
 import { visit as visitJson } from "jsonc-parser";
-import { isScalar, parseDocument, visit as visitYaml } from "yaml";
+import { isPair, isScalar, parseDocument, visit as visitYaml } from "yaml";
 
 import type { Diagnostic } from "@agent-config-hub/protocol";
 
@@ -12,6 +12,7 @@ export interface SecretReplacementResult {
   readonly slots: readonly string[];
   readonly sensitive: boolean;
   readonly diagnostics: readonly Diagnostic[];
+  readonly deviceNameSlots: readonly { start: number; end: number; format: SecretFormat }[];
 }
 
 interface Replacement {
@@ -113,19 +114,41 @@ function scanTomlStrings(text: string): { start: number; end: number; value: str
     }
     const quote = character;
     const start = offset;
-    offset += 1;
-    let value = "";
-    while (offset < text.length && text[offset] !== quote) {
-      if (quote === '"' && text[offset] === "\\" && offset + 1 < text.length) {
-        const escaped = text.slice(offset, offset + 2);
-        value += JSON.parse(`"${escaped}"`) as string;
-        offset += 2;
-      } else {
-        value += text[offset]!;
-        offset += 1;
-      }
+    const delimiter = text.startsWith(quote.repeat(3), offset) ? quote.repeat(3) : quote;
+    offset += delimiter.length;
+    if (delimiter.length === 3) {
+      if (text.startsWith("\r\n", offset)) offset += 2;
+      else if (text[offset] === "\n") offset += 1;
     }
-    if (offset < text.length) offset += 1;
+    let value = "";
+    while (offset < text.length && !text.startsWith(delimiter, offset)) {
+      if (quote === '"' && text[offset] === "\\" && offset + 1 < text.length) {
+        const escaped = text.slice(offset).match(/^\\(?:u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|[btnfr"\\])/);
+        const continuation = delimiter.length === 3 ? /^\\[ \t]*\r?\n\s*/.exec(text.slice(offset)) : null;
+        if (continuation) {
+          offset += continuation[0].length;
+          continue;
+        }
+        if (escaped) {
+          const token = escaped[0];
+          const point = token.startsWith("\\U") ? Number.parseInt(token.slice(2), 16) : null;
+          value += point === null ? JSON.parse(`"${token}"`) as string
+            : point <= 0x10ffff ? String.fromCodePoint(point) : "";
+          offset += token.length;
+          continue;
+        }
+      }
+      value += text[offset]!;
+      offset += 1;
+    }
+    if (offset < text.length) {
+      let closingLength = delimiter.length;
+      if (delimiter.length === 3) {
+        while (closingLength < 5 && text[offset + closingLength] === quote) closingLength += 1;
+        value += quote.repeat(closingLength - 3);
+      }
+      offset += closingLength;
+    }
     tokens.push({ start, end: offset, value, valuePosition: currentlyInValue });
   }
   return tokens;
@@ -138,12 +161,21 @@ export async function replaceSecretScalars(
 ): Promise<SecretReplacementResult> {
   const diagnostics: Diagnostic[] = [];
   const candidates: { start: number; end: number; value: string }[] = [];
+  const rejectDeviceKey = (value: string, start: number, length: number) => {
+    if (value.includes("{{device:")) diagnostics.push({
+      code: "DEVICE_PLACEHOLDER_NOT_SCALAR", severity: "error",
+      message: "设备变量不能用于键名。", range: rangeAt(text, start, length),
+    });
+  };
 
   if (format === "json" || format === "jsonc") {
     const errors: { error: number; offset: number; length: number }[] = [];
     visitJson(text, {
       onError(error, offset, length) {
         errors.push({ error, offset, length });
+      },
+      onObjectProperty(value, offset, length) {
+        rejectDeviceKey(value, offset, length);
       },
       onLiteralValue(value, offset, length) {
         if (typeof value === "string") candidates.push({ start: offset, end: offset + length, value });
@@ -164,9 +196,24 @@ export async function replaceSecretScalars(
       range: rangeAt(text, error.pos[0], Math.max(1, error.pos[1] - error.pos[0])),
     });
     visitYaml(document, {
-      Scalar(_key, node) {
-        if (_key !== "key" && isScalar(node) && typeof node.value === "string" && node.range) {
-          candidates.push({ start: node.range[0], end: node.range[1], value: node.value });
+      Scalar(_key, node, path) {
+        const inKey = _key === "key" || path.some((ancestor, index) =>
+          isPair(ancestor) && ancestor.key === (path[index + 1] ?? node));
+        if (inKey && isScalar(node) && typeof node.value === "string" && node.range) {
+          rejectDeviceKey(node.value, node.range[0], node.range[1] - node.range[0]);
+        }
+        if (!inKey && isScalar(node) && typeof node.value === "string" && node.range) {
+          // 块标量范围含末尾换行；保留节点分隔符，避免规范化后粘连下一键。
+          const block = node.type === "BLOCK_LITERAL" || node.type === "BLOCK_FOLDED";
+          if (block && text.slice(node.range[0], text.indexOf("\n", node.range[0])).includes("{{device:")) {
+            diagnostics.push({
+              code: "DEVICE_PLACEHOLDER_NOT_SCALAR", severity: "error",
+              message: "设备变量不能用于块标量的头部注释。",
+              range: rangeAt(text, node.range[0], node.range[1] - node.range[0]),
+            });
+          }
+          const trailingBreak = block ? (text.slice(node.range[0], node.range[1]).match(/\r?\n$/)?.[0].length ?? 0) : 0;
+          candidates.push({ start: node.range[0], end: node.range[1] - trailingBreak, value: node.value });
         }
       },
     });
@@ -174,6 +221,7 @@ export async function replaceSecretScalars(
     diagnostics.push(...await lintToml(text));
     for (const token of scanTomlStrings(text)) {
       if (token.valuePosition) candidates.push({ start: token.start, end: token.end, value: token.value });
+      else rejectDeviceKey(token.value, token.start, token.end - token.start);
     }
   } else {
     let offset = 0;
@@ -190,6 +238,28 @@ export async function replaceSecretScalars(
     }
   }
 
+  // 设备变量与秘密共用标量解析，但计划只来自原始模板，不能扫描秘密展开后的文本。
+  const deviceCandidates = candidates.filter(({ value }) => value === "{{device:name}}");
+  for (const candidate of candidates) {
+    if (candidate.value.includes("{{device:") && candidate.value !== "{{device:name}}") {
+      diagnostics.push({
+        code: "DEVICE_PLACEHOLDER_NOT_SCALAR",
+        severity: "error",
+        message: "设备变量只支持完整字符串值 {{device:name}}。",
+        range: rangeAt(text, candidate.start, candidate.end - candidate.start),
+      });
+    }
+  }
+  for (const match of text.matchAll(/\{\{device:[^}\r\n]*(?:\}\})?/g)) {
+    if (!deviceCandidates.some(({ start, end }) => match.index >= start && match.index < end)) {
+      diagnostics.push({
+        code: "DEVICE_PLACEHOLDER_NOT_SCALAR",
+        severity: "error",
+        message: "设备变量不能出现在键名、注释或拼接字符串中，也不支持未知变量。",
+        range: rangeAt(text, match.index, match[0].length),
+      });
+    }
+  }
   const replacements: Replacement[] = [];
   for (const candidate of candidates) {
     const placeholder = placeholderPattern.exec(candidate.value);
@@ -223,9 +293,21 @@ export async function replaceSecretScalars(
   }
   diagnostics.push(...scanInlineSecrets(text));
 
+  const deviceNameSlots: { start: number; end: number; format: SecretFormat }[] = [];
+  const allReplacements = [
+    ...replacements,
+    ...deviceCandidates.map((candidate) => ({ ...candidate, value: JSON.stringify("{{device:name}}"), slot: null })),
+  ].toSorted((left, right) => left.start - right.start);
+  let shift = 0;
+  for (const replacement of allReplacements) {
+    if (replacement.slot === null) {
+      deviceNameSlots.push({ start: replacement.start + shift, end: replacement.start + shift + replacement.value.length, format });
+    }
+    shift += replacement.value.length - (replacement.end - replacement.start);
+  }
 
   let output = text;
-  for (const replacement of replacements.toSorted((left, right) => right.start - left.start)) {
+  for (const replacement of allReplacements.toReversed()) {
     output = `${output.slice(0, replacement.start)}${replacement.value}${output.slice(replacement.end)}`;
   }
   return {
@@ -233,5 +315,6 @@ export async function replaceSecretScalars(
     slots: [...new Set(replacements.map(({ slot }) => slot))].sort(),
     sensitive: replacements.length > 0,
     diagnostics,
+    deviceNameSlots,
   };
 }

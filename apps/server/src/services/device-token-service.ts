@@ -148,6 +148,15 @@ export class DeviceTokenService {
     return row;
   }
 
+  deviceIdentity(token: string | undefined): { name: string } | null {
+    const identity = this.authenticate(token);
+    if (!identity) throw new AuthenticationError("UNAUTHORIZED", "拉取令牌无效。");
+    if (identity.kind !== "device") return null;
+    const row = this.#database.native.prepare("SELECT label FROM pull_tokens WHERE id = ?")
+      .get(identity.id) as { label: string };
+    return { name: row.label };
+  }
+
   revoke(tokenId: string): void {
     this.#database.native.transaction(() => {
       const update = this.#database.native.prepare(

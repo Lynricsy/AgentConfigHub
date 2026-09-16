@@ -6,6 +6,9 @@ import { Readable } from "node:stream";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { buildServer } from "../src/index.js";
+import { AuthService } from "../src/services/auth-service.js";
+import { DeviceTokenService } from "../src/services/device-token-service.js";
 import { openDatabase } from "../src/db/database.js";
 import { migrateDatabase } from "../src/db/migrate.js";
 import { loadMasterKey } from "../src/security/master-key.js";
@@ -90,5 +93,49 @@ describe("release manifest compatibility contract", () => {
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
       .toEqual({ floor: "0.2.3" });
     database.native.close();
+  });
+
+  it("设备变量冻结位置计划并仅将含变量发布提升到 0.2.4", async () => {
+    directory = await mkdtemp(join(tmpdir(), "agent-config-hub-device-manifest-"));
+    const database = openDatabase(directory);
+    migrateDatabase(database);
+    try {
+      const masterKey = await loadMasterKey({ AGENT_CONFIG_HUB_MASTER_KEY: randomBytes(32).toString("base64") });
+      const blobs = new FileEncryptedBlobStore(database, masterKey, directory);
+      const configSets = new ConfigSetService(database);
+      const configSet = configSets.create({ name: "设备通知", slug: "device-notify", agentId: "omp" });
+      const text = '{"device_name":"{{device:name}}"}';
+      const blob = await blobs.put(Readable.from(text), "application/json");
+      const revision = configSets.createFile({
+        configSetId: configSet.id, expectedRevision: 1, agentId: "omp",
+        target: { root: "omp-home", relativePath: "omp-notify.json" },
+        blobSha256: blob.sha256, mediaType: "application/json", utf8: true, executable: false,
+      });
+      const publish = new PublishService(database, blobs, new SecretBindingResolver(database, masterKey));
+      const { releaseId, manifest } = await publish.publish(configSet.id, revision);
+      expect(manifest.minCliVersion).toBe("0.2.4");
+      const file = manifest.files.find(({ target }) => target.relativePath === "omp-notify.json")!;
+      expect(file.contentSha256).toBe(blob.sha256);
+      const slot = file.deviceNameSlots![0]!;
+      expect(text.slice(slot.start, slot.end)).toBe('"{{device:name}}"');
+      const devices = new DeviceTokenService(database, "http://localhost");
+      const { token } = devices.createAutomationToken("manifest-consumer");
+      const server = buildServer({ api: {
+        database, configSets, devices, blobStore: blobs, publicUrl: "http://localhost",
+        auth: new AuthService(database, { bootstrapToken: "test-setup" }),
+      } });
+      try {
+        await publish.rollback(configSet.id, releaseId, revision);
+        const response = await server.inject({
+          method: "GET", url: "/api/v1/cli/config-sets/device-notify/releases/latest",
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode).toBe(200);
+        const restored = response.json<typeof manifest>();
+        expect(restored.minCliVersion).toBe("0.2.4");
+        const restoredFile = restored.files.find(({ target }) => target.relativePath === "omp-notify.json")!;
+        expect(restoredFile.deviceNameSlots).toEqual(file.deviceNameSlots);
+      } finally { await server.close(); }
+    } finally { database.native.close(); }
   });
 });
