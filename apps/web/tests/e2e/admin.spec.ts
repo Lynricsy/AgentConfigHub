@@ -478,6 +478,34 @@ test("scrolls the workspace with the native wheel", async ({ page }) => {
   expect(await page.evaluate(() => window.scrollY)).toBe(0);
 });
 
+test("keeps both editors usable on phone viewports", async ({ page }) => {
+  await signIn(page);
+  // 锁高布局会把页头、操作栏与资源卡片之外的剩余高度留给编辑器;手机竖屏/横屏上剩余
+  // 高度接近 0,编辑器被压成几像素且被相邻元素遮挡,点击无法落到编辑区。
+  const expectEditable = async () => {
+    const editor = page.locator(".monaco-editor").first();
+    await expect(editor).toBeVisible();
+    await editor.scrollIntoViewIfNeeded();
+    const box = (await editor.boundingBox())!;
+    expect(box.height).toBeGreaterThan(200);
+    expect(box.width).toBeGreaterThan(250);
+    // 可操作性检查会在编辑区被遮挡时超时,证明真实点击能落进编辑器
+    await page.locator(".monaco-editor .view-lines").first().click({ timeout: 5_000 });
+  };
+  for (const viewport of [{ width: 390, height: 664 }, { width: 844, height: 390 }]) {
+    await page.setViewportSize(viewport);
+    // 窄屏导航栏只剩图标,文字标签 display:none 不进入可访问名,直接按路由进入
+    await page.goto("/config-sets");
+    await page.locator('a[href$="/configs/claude-code"]').first().click();
+    await page.getByRole("button", { name: /e2e\.md/ }).click();
+    await expectEditable();
+
+    await page.goto("/resources");
+    await page.getByRole("button", { name: /E2E instructions e2e-instructions/ }).click();
+    await expectEditable();
+  }
+});
+
 test("falls back to a new group when the selected group disappears", async ({ page }) => {
   await signIn(page);
 

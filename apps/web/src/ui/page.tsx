@@ -12,7 +12,10 @@ export function Page({
   title: string;
   lede?: string | undefined;
   actions?: ReactNode | undefined;
-  /** 锁高页面（编辑器类）：整页填满 <main>，由内部容器自行滚动，不产生第二个滚动条。 */
+  /**
+   * 锁高页面（编辑器类）：视口满足 `locked` 变体时整页填满 <main>，由内部容器自行滚动，
+   * 不产生第二个滚动条；小屏退回自然高度，由 <main> 滚动。
+   */
   fill?: boolean | undefined;
   children: ReactNode;
 }): ReactElement {
@@ -20,7 +23,7 @@ export function Page({
     <div
       className={cn(
         "mx-auto flex w-full max-w-[1400px] flex-col gap-5 px-6 py-6",
-        fill && "h-full min-h-0",
+        fill && "locked:h-full locked:min-h-0",
       )}
     >
       <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">

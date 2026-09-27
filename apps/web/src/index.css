@@ -5,6 +5,13 @@
 /* 亮/暗主题由 <html class="dark"> 切换（见 src/theme.tsx） */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * 锁高布局（Page fill）只在视口足够宽且足够高时启用：窄屏或横屏手机上，页头、操作栏与
+ * 资源卡片会吃掉几乎全部高度，锁高会把编辑器压到只剩几像素。未命中时页面自然流动、
+ * 由 <main> 滚动，编辑器改用固定视口高度。
+ */
+@custom-variant locked (@media (min-width: 720px) and (min-height: 640px));
+
 :root {
   --background: oklch(0.995 0.002 247);
   --foreground: oklch(0.21 0.012 247);

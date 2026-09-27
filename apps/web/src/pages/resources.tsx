@@ -254,13 +254,15 @@ function ResourceFileEditor({
           </div>
         </section>
       )}
-      <div className="min-h-0 flex-1 overflow-hidden">
+      {/* 非锁高布局下父级高度不确定，Monaco 的 height="100%" 需要一个确定的容器高度 */}
+      <div className="h-[70svh] shrink-0 overflow-hidden locked:h-auto locked:min-h-0 locked:flex-1">
         <Editor
           beforeMount={defineMonacoThemes}
           height="100%"
           language={languageFor(file.relativePath)}
           onChange={(value) => setText(value ?? "")}
           options={{
+            automaticLayout: true,
             minimap: { enabled: false },
             fontFamily: "'JetBrains Mono Variable', monospace",
             fontSize: 13,
@@ -503,8 +505,9 @@ export function ResourcesPage() {
         )}
 
         {resources.error && <div className="shrink-0"><ErrorNotice error={resources.error} /></div>}
-        <div className="grid grid-cols-[280px_1fr] gap-4 min-h-0 flex-1 overflow-hidden">
-          <Card className="flex min-h-0 flex-col overflow-hidden">
+        {/* 720px 以下退回单栏，与配置编辑器的断点一致 */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden min-[720px]:grid-cols-[280px_1fr]">
+          <Card className="flex max-h-60 min-h-0 flex-col overflow-hidden locked:max-h-none">
             <CardContent className="min-h-0 flex-1 overflow-y-auto p-2">
               <section aria-labelledby="instruction-heading">
                 <h2

@@ -316,7 +316,8 @@ function TextFileEditor({
         <span className={cn("save-state font-medium", saveState === "conflict" && "text-destructive", saveState === "unsaved" && "text-warning")}>{saveState}</span>
         <span className="min-w-0 flex-1 truncate text-right font-mono text-[0.6875rem]">{modelUri}</span>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
+      {/* 非锁高布局下父级高度不确定，Monaco 的 height="100%" 需要一个确定的容器高度 */}
+      <div className="h-[70svh] shrink-0 overflow-hidden locked:h-auto locked:min-h-0 locked:flex-1">
         <Editor
           height="100%"
           language={language}
@@ -843,7 +844,7 @@ export function ConfigEditorPage() {
         />
         {/* 720px 以下退回单栏,与重构前 .editor-shell 的断点一致 */}
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden min-[720px]:grid-cols-[280px_1fr]">
-          <Card className="min-h-0 overflow-y-auto p-2">
+          <Card className="max-h-60 min-h-0 overflow-y-auto p-2 locked:max-h-none">
             <div className="space-y-1">
               {files.map((file) => {
                 const FileIcon = file.utf8 ? FileCode : Database;

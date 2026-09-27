@@ -120,7 +120,8 @@ export function AppShell(): ReactElement {
   return (
     <StatusContext.Provider value={status}>
       <TooltipProvider delayDuration={250}>
-        <div className="grid h-screen grid-cols-[240px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden max-[900px]:grid-cols-[56px_1fr]">
+        {/* dvh 而非 100vh：移动浏览器的 100vh 含被地址栏/工具栏遮住的部分，底部内容会被挡住 */}
+        <div className="grid h-dvh grid-cols-[240px_1fr] grid-rows-[minmax(0,1fr)] overflow-hidden max-[900px]:grid-cols-[56px_1fr]">
 
           {/* ── Rail ─────────────────────────────────────────────────────── */}
           <aside className="flex min-h-0 flex-col border-r border-border bg-card">
