@@ -71,6 +71,16 @@ export class CredentialService {
       this.#database.native.prepare(
         "UPDATE credentials SET current_revision_id = ?, updated_at = ? WHERE id = ?",
       ).run(revision.id, now, credentialId);
+      // 显式轮换表示所有引用都要换到新值；回滚恢复的历史修订固定必须一并解除，
+      // 否则解析器仍按固定修订渲染，发布结果会静默沿用旧密钥。
+      this.#database.native.prepare(`
+        UPDATE secret_slots SET default_credential_revision_id = NULL, updated_at = ?
+        WHERE default_credential_id = ? AND default_credential_revision_id IS NOT NULL
+      `).run(now, credentialId);
+      this.#database.native.prepare(`
+        UPDATE secret_agent_overrides SET credential_revision_id = NULL
+        WHERE credential_id = ? AND credential_revision_id IS NOT NULL
+      `).run(credentialId);
       const affected = this.#database.native.prepare(`
         SELECT DISTINCT config_set_id AS configSetId FROM secret_slots WHERE default_credential_id = ?
         UNION

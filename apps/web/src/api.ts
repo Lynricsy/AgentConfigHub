@@ -29,12 +29,14 @@ const SecretSlots = z.object({
     name: z.string(),
     defaultCredentialId: z.string().nullable(),
     defaultCredentialLabel: z.string().nullable(),
+    defaultPinnedRevision: z.number().int().nullable(),
   })),
   overrides: z.array(z.object({
     secretSlotId: z.string(),
     agentId: AgentId,
     credentialId: z.string(),
     credentialLabel: z.string(),
+    pinnedRevision: z.number().int().nullable(),
   })),
 });
 const ResourceSelection = z.object({

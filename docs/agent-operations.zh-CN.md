@@ -295,7 +295,7 @@ revision = result["revision"]
 
 如只授权 OMP 使用这条凭据，不要执行上面的默认绑定。改为先向同一 `slot_path` PUT `{"credentialId":null}` 创建无默认凭据的槽（**仅在槽尚不存在时**），再用返回的新版本向 `slot_path + "/agents/omp"` PUT `{"credentialId": credential_id}`。已有槽保留其原默认绑定，只新增或修改 OMP override。
 
-Agent override 优先于默认绑定。向 `/agents/omp` PUT `{"credentialId":null}` 是删除 override、恢复使用默认值，**不是禁止该 Agent 使用密钥**；向默认槽 PUT `null` 则清空默认凭据但保留槽。修改后 GET `.../secret-slots`，核对 `slots` 和 `overrides`。
+Agent override 优先于默认绑定。向 `/agents/omp` PUT `{"credentialId":null}` 是删除 override、恢复使用默认值，**不是禁止该 Agent 使用密钥**；向默认槽 PUT `null` 则清空默认凭据但保留槽。修改后 GET `.../secret-slots`，核对 `slots` 和 `overrides`；`defaultPinnedRevision` / `pinnedRevision` 非 null 表示该绑定被回滚固定在该凭据修订号，发布不跟随凭据当前值（Web 矩阵显示 `Pinned to rN`）。
 
 把包含占位符的文件按第 3/4 节保存，然后发布。仅创建 Credential 或绑定槽，不会自动在配置文件里添加 `apiKey` 或 MCP 条目。凭据、槽、文件是多步操作，不是事务；失败时检查已经成功的步骤再继续。
 
@@ -304,10 +304,10 @@ Agent override 优先于默认绑定。向 `/agents/omp` PUT `{"credentialId":nu
 1. GET 凭据列表并检查 `referenceCount`。遍历配置组详情中的槽与 override，确定影响哪些组/Agent；计数不是完整影响列表。
 2. 如用户只要求一个配置使用新密钥，而旧凭据仍被其他配置使用，新建 Credential 并改目标绑定，不要轮换共享凭据。
 3. 对确认要轮换的 ID 调用 `POST /api/v1/credentials/:credentialId/rotate`，请求体为 `{"value": 新的完整密钥值}`；秘密仍通过安全输入获得。
-4. 轮换会增加凭据 revision，并增加所有引用配置组的草稿版本。重新读取受影响组，不能继续用轮换前的 `If-Match`。已有 Release 仍冻结旧密钥，需要分别发布用户授权的配置组并验证客户端。
+4. 轮换会增加凭据 revision，解除所有引用该凭据的默认绑定与 override 上由回滚留下的历史修订固定，并增加所有引用配置组的草稿版本。重新读取受影响组，不能继续用轮换前的 `If-Match`。已有 Release 仍冻结旧密钥，需要分别发布用户授权的配置组并验证客户端。
 5. 确认新版本工作后，按用户授权在密钥提供方撤销旧值；Hub 内轮换不会替你撤销外部密钥。
 
-回滚过的配置可能固定了历史凭据 revision。轮换后若仍需要切到最新值，显式重新 PUT 目标默认绑定或 override（可以是相同 credentialId）解除该绑定的历史固定，再发布并验证。当前管理 API 没有凭据删除接口，不要发明 `DELETE /credentials/:id` 或直接删表。
+回滚固定只在两种情况下解除：轮换该凭据，或显式重新 PUT 目标默认绑定/override（可以是相同 credentialId）。未轮换的其他凭据保持固定，所以回滚后原样再发布仍得到历史输出。当前管理 API 没有凭据删除接口，不要发明 `DELETE /credentials/:id` 或直接删表。
 
 ## 6. 编辑指令、增加 Skill 或创建配置
 

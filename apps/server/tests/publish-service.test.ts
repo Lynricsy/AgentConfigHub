@@ -235,6 +235,19 @@ describe("PublishService", () => {
       "SELECT agent_id, root_id, relative_path, blob_sha256 FROM release_files WHERE release_id = ? ORDER BY agent_id, root_id, relative_path",
     ).all(republished.releaseId);
     expect(republishedHashes).toEqual(release1Hashes);
+
+    // 回滚固定的历史修订只在显式轮换该凭据时解除；未轮换的凭据保持固定。
+    credentials.rotate(defaultCredential.id, "default-v3");
+    const rotatedDraft = database.native.prepare(
+      "SELECT draft_revision AS revision FROM config_sets WHERE id = ?",
+    ).get(configSet.id) as { revision: number };
+    const afterRotation = await publish.publish(configSet.id, rotatedDraft.revision, "Rotate after rollback");
+    const rotatedClaude = afterRotation.manifest.files.find(({ agentId, target }) =>
+      agentId === "claude-code" && target.relativePath === "settings.json")!;
+    const pinnedOmp = afterRotation.manifest.files.find(({ agentId, target }) =>
+      agentId === "omp" && target.relativePath === "config.yml")!;
+    expect(await consume(await blobStore.open(rotatedClaude.contentSha256))).toContain("default-v3");
+    expect(await consume(await blobStore.open(pinnedOmp.contentSha256))).toContain("omp-v1");
     publish.deleteHistorical(configSet.id, release1.releaseId);
     expect(database.native.prepare("SELECT id FROM releases WHERE id = ?").get(release1.releaseId)).toBeUndefined();
     database.native.close();

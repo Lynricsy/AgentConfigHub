@@ -115,6 +115,8 @@ export function CredentialsPage() {
       if (action !== "reveal") await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["credentials"] }),
         queryClient.invalidateQueries({ queryKey: ["config-sets"] }),
+        // 轮换会推进引用组的草稿版本并解除回滚固定；详情缓存不刷新会显示旧固定并让下一次绑定版本冲突
+        queryClient.invalidateQueries({ queryKey: ["config-set"] }),
       ]);
     } catch (error) {
       if (action === "create") setCreateError(error);
@@ -354,6 +356,7 @@ export function CredentialsPage() {
                             ))}
                           </SelectContent>
                         </Select>
+                        <PinnedRevisionNote revision={slot.defaultPinnedRevision} />
                       </TableCell>
                       {AgentId.options.map((agent) => {
                         const override = config.data.secretSlots.overrides.find(
@@ -387,6 +390,7 @@ export function CredentialsPage() {
                                 ))}
                               </SelectContent>
                             </Select>
+                            <PinnedRevisionNote revision={override?.pinnedRevision ?? null} />
                           </TableCell>
                         );
                       })}
@@ -447,5 +451,18 @@ export function CredentialsPage() {
         </DialogContent>
       </Dialog>
     </Page>
+  );
+}
+
+// 回滚会把槽位固定到历史凭据修订；发布按固定修订渲染而非凭据当前值，必须让管理员看得见。
+function PinnedRevisionNote({ revision }: { revision: number | null }) {
+  if (revision === null) return null;
+  return (
+    <p
+      className="mt-1 font-mono text-xs text-muted-foreground"
+      title="Restored by a rollback. Publishing uses this revision until the credential is rotated or rebound."
+    >
+      Pinned to r{revision}
+    </p>
   );
 }

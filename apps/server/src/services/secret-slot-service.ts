@@ -13,19 +13,24 @@ export class SecretSlotService {
   }
 
   list(configSetId: string) {
+    // 固定修订只来自回滚恢复；返回其修订号，界面据此提示发布不会跟随凭据最新值。
     const slots = this.#database.native.prepare(`
       SELECT slots.id, slots.name, slots.default_credential_id AS defaultCredentialId,
-        credentials.label AS defaultCredentialLabel
+        credentials.label AS defaultCredentialLabel,
+        pinned.revision_number AS defaultPinnedRevision
       FROM secret_slots slots
       LEFT JOIN credentials ON credentials.id = slots.default_credential_id
+      LEFT JOIN credential_revisions pinned ON pinned.id = slots.default_credential_revision_id
       WHERE slots.config_set_id = ? ORDER BY slots.name, slots.id
     `).all(configSetId);
     const overrides = this.#database.native.prepare(`
       SELECT overrides.secret_slot_id AS secretSlotId, overrides.agent_id AS agentId,
-        overrides.credential_id AS credentialId, credentials.label AS credentialLabel
+        overrides.credential_id AS credentialId, credentials.label AS credentialLabel,
+        pinned.revision_number AS pinnedRevision
       FROM secret_agent_overrides overrides
       JOIN secret_slots slots ON slots.id = overrides.secret_slot_id
       JOIN credentials ON credentials.id = overrides.credential_id
+      LEFT JOIN credential_revisions pinned ON pinned.id = overrides.credential_revision_id
       WHERE slots.config_set_id = ? ORDER BY slots.name, overrides.agent_id
     `).all(configSetId);
     return { slots, overrides };
