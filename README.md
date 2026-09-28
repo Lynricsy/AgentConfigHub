@@ -18,7 +18,7 @@ AI coding agents use different files, roots, formats, and authentication convent
 
 - Named configuration groups as release and rollback boundaries, with one explicit configuration per Agent and `By group` / `By Agent` browsing
 - Create-only `New` / `Upload` flows and uninterrupted Monaco autosave for native config files, plus direct revisioned editing of shared instructions and portable Agent Skills
-- Envelope-encrypted blobs and credential revisions with format-aware secret slots
+- Envelope-encrypted blobs and credential revisions with format-aware secret slots; rollbacks pin bindings to the released credential revision (shown as `Pinned to rN`), and rotating a credential releases those pins so the next publish uses the new value ([operations guide](docs/agent-operations.zh-CN.md#54-轮换密钥))
 - Password-protected administration, one-time device pairing, and revocable automation tokens
 - Transactional cross-platform installation with full backups, managed-file deletion safety, symlink/reparse-point refusal, and crash recovery
 - Built-in adapters for six coding agents—including managed OMP MCP configuration—and a pull-only CLI packaged for `npx`
