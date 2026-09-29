@@ -72,7 +72,23 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` performs browser-approved device pairing. `AGENT_CONFIG_HUB_SERVER` and `AGENT_CONFIG_HUB_TOKEN` override stored credentials for automation without placing the token in argv. A pull validates the immutable manifest, streams and hashes downloads, stages same-filesystem replacements, backs up overwritten/deleted managed files, and commits through a durable journal.
 
-每个发布版本都会记录最低 CLI 版本。OMP adapter revision 5 新增了 `omp-notify.json` 受管面，新发布要求 CLI `0.2.3` 及以上；旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配，升级后应拉取由新版服务端重新发布的 OMP 配置，历史 OMP revision 4 的 Release 不能直接用新版 CLI 安装。
+Every release records a minimum CLI version. OMP adapter revision 6 adds the `cortexkit-home` root and the `agent-config-hub.json` extras declaration, so every new release requires CLI `0.3.0`; older CLIs refuse before touching any file. The CLI requires an exact adapter revision match, so upgrade the CLI, deploy the new server, and republish before clients pull; releases published under OMP revision 5 cannot be installed by CLI `0.3.0`.
+
+### OMP extras: plugins and skill repositories
+
+An OMP config may publish `omp-home/agent-config-hub.json`. After a successful pull writes the release (and on every later pull), the CLI runs `omp plugin install <spec>` for each plugin and clones or fast-forwards each skill repository into `<omp-home>/skill-repositories/<name>`. `--dry-run` prints the plan without running anything.
+
+```json
+{
+  "version": 1,
+  "plugins": ["@cortexkit/pi-magic-context@latest"],
+  "skillRepositories": [
+    { "name": "hyperskills", "url": "https://github.com/Lynricsy/HyperSkills.git", "ref": "main" }
+  ]
+}
+```
+
+Point OMP at the cloned skills from the managed `config.yml`, e.g. `skills.customDirectories: ["~/.omp/agent/skill-repositories/hyperskills/skills"]`. Plugins are npm specs (use `@latest` to follow new versions); repositories must be `https://` URLs without embedded credentials and a branch or tag `ref`. Nothing is passed through a shell. A clone with local changes or a different `origin` is never overwritten; the pull reports the error and exits non-zero while the already installed files stay in place. `omp` and `git` must be on `PATH`.
 
 ## Operations
 
@@ -82,13 +98,15 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 ## Supported Agents
 
-The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages, including a root `.env` file with dotenv validation. OMP also covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `instructions`, `hooks`, `tools`, and `extensions` directories.
+The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages, including a root `.env` file with dotenv validation. OMP also covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, `omp-notify.json`, `agent-config-hub.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `instructions`, `hooks`, `tools`, and `extensions` directories.
 
-OMP 还支持根目录 `omp-notify.json`，按 JSON 校验，可使用完整标量 `{{secret:SLOT_NAME}}` 配置 Telegram 凭据；不放宽其他根目录 JSON 文件的路径限制。
+OMP owns a second root, `cortexkit-home` (default `~/.config/cortexkit`), that manages only the Magic Context user config `magic-context.jsonc`. It accepts full-scalar `{{secret:SLOT_NAME}}` placeholders such as the embedding `api_key`. Devices that set `XDG_CONFIG_HOME` should run `agent-config-hub roots set cortexkit-home "$XDG_CONFIG_HOME/cortexkit"`.
+
+`omp-notify.json` is validated as JSON and may use full-scalar `{{secret:SLOT_NAME}}` placeholders for Telegram credentials; other root JSON paths stay unmanaged.
 
 设备登记名称可作为完整字符串变量 `{{device:name}}` 使用，例如 OMP `omp-notify.json` 中的 `"device_name": "{{device:name}}"`。它取自当前拉取令牌对应设备注册时填写的名称，不是本机 hostname，也不是自动化令牌标签；环境变量覆盖令牌时同样使用该令牌的鉴权身份。只支持 JSON/JSONC/YAML/TOML/dotenv 的完整字符串值，禁止拼接、键名、注释和未知设备变量。
 
-含设备变量的新 Release 要求 CLI `0.2.4`，其他新 Release 保持最低 `0.2.3`，OMP adapter revision 仍为 5。CLI 先校验不可变原始下载的大小和 SHA-256，再按发布时冻结的精确位置替换；秘密值和设备名内的占位符不会递归展开。计划、安装状态、重复 pull 和 status 使用实际落盘字节的哈希。自动化令牌可以拉取无设备变量的配置，但需要设备名时明确失败。dotenv 无法无损表达的名称（如冲突引号组合、回车或 NUL）会在写目标前拒绝；不会偷偷改名。
+Releases with device variables no longer have a separate floor: every new release requires CLI `0.3.0`. The CLI verifies the immutable original download's size and SHA-256 before replacing the frozen exact positions; placeholders inside secret values or device names are never expanded recursively. Plans, install state, repeated pulls, and status use the hash of the bytes actually written. Automation tokens can pull configs without device variables but fail explicitly when a device name is required. Names that dotenv cannot represent losslessly (conflicting quote combinations, carriage returns, NUL) are rejected before any target is written; they are never silently renamed.
 
 ## Architecture
 

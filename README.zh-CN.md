@@ -21,7 +21,7 @@ AgentConfigHub 是面向个人部署的单实例配置控制平面。服务端�
 - 带格式感知秘密槽位的信封加密 Blob 与凭据修订；回滚会把绑定固定在发布时的凭据修订（界面显示 `Pinned to rN`），轮换该凭据即解除固定，下次发布使用新值（见[操作手册](docs/agent-operations.zh-CN.md#54-轮换密钥)）
 - 密码保护管理端、一次性设备配对和可撤销自动化令牌
 - 带完整备份、受管删除保护、链接/reparse point 拒绝和崩溃恢复的跨平台事务安装
-- 六个内置 Agent 适配器（包括受管 OMP MCP 配置），以及为 `npx` 打包的只拉取 CLI
+- 六个内置 Agent 适配器（包括受管 OMP MCP 配置、Magic Context 配置），以及为 `npx` 打包的只拉取 CLI；OMP 拉取时可按声明安装插件并同步 Git 技能仓库
 
 ## 使用 Docker Compose 自托管
 
@@ -72,7 +72,23 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` 执行浏览器审批的设备配对。自动化可用 `AGENT_CONFIG_HUB_SERVER` 和 `AGENT_CONFIG_HUB_TOKEN` 覆盖本地凭据，令牌无需进入 argv。拉取会校验不可变清单、流式下载并计算哈希、在同文件系统 staging、备份被覆盖/删除的受管文件，再通过持久 journal 提交。
 
-每个发布版本都会记录最低 CLI 版本。OMP adapter revision 5 新增了 `omp-notify.json` 受管面，新发布要求 CLI `0.2.3` 及以上；旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配，升级后应拉取由新版服务端重新发布的 OMP 配置，历史 OMP revision 4 的 Release 不能直接用新版 CLI 安装。
+每个发布版本都会记录最低 CLI 版本。OMP adapter revision 6 新增 `cortexkit-home` 根和 `agent-config-hub.json` 附加安装声明，所有新发布要求 CLI `0.3.0` 及以上；旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配：先升级 CLI、部署新版服务端并重新发布，再让客户端拉取；OMP revision 5 时期发布的 Release 不能用 CLI `0.3.0` 安装。
+
+### OMP 附加安装：插件与技能仓库
+
+OMP 配置可发布 `omp-home/agent-config-hub.json`。pull 成功写入 Release 之后（以及之后每一次 pull），CLI 对每个插件执行 `omp plugin install <spec>`，并把每个技能仓库克隆或快进到 `<omp-home>/skill-repositories/<name>`。`--dry-run` 只打印计划，不执行任何命令。
+
+```json
+{
+  "version": 1,
+  "plugins": ["@cortexkit/pi-magic-context@latest"],
+  "skillRepositories": [
+    { "name": "hyperskills", "url": "https://github.com/Lynricsy/HyperSkills.git", "ref": "main" }
+  ]
+}
+```
+
+在受管 `config.yml` 中让 OMP 读取克隆下来的技能，例如 `skills.customDirectories: ["~/.omp/agent/skill-repositories/hyperskills/skills"]`。插件是 npm 包规格（写 `@latest` 即每次跟随新版本）；仓库必须是不含内嵌凭据的 `https://` URL，`ref` 为分支或标签名。所有命令都不经过 shell。克隆目录存在本地改动或 `origin` 不一致时绝不覆盖：pull 报错并以非零退出，已安装的配置文件保持不变。设备的 `PATH` 中需要有 `omp` 和 `git`。
 
 ## 运维
 
@@ -82,13 +98,15 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 ## 支持的 Agent
 
-内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。每个适配器都显式声明自己管理的文件面，包括经过 dotenv 校验的根目录 `.env` 文件。OMP 还覆盖 `config.yml`、`models.yml`、`keybindings.yml`/`.json`、`mcp.json`、各 `*.md` 指令文件，以及 `skills`、`commands`、`rules`、`prompts`、`role-prompts`、`instructions`、`hooks`、`tools`、`extensions` 目录。
+内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。每个适配器都显式声明自己管理的文件面，包括经过 dotenv 校验的根目录 `.env` 文件。OMP 还覆盖 `config.yml`、`models.yml`、`keybindings.yml`/`.json`、`mcp.json`、`omp-notify.json`、`agent-config-hub.json`、各 `*.md` 指令文件，以及 `skills`、`commands`、`rules`、`prompts`、`role-prompts`、`instructions`、`hooks`、`tools`、`extensions` 目录。
+
+OMP 还拥有第二个根 `cortexkit-home`（默认 `~/.config/cortexkit`），只托管 Magic Context 用户配置 `magic-context.jsonc`，可用完整标量 `{{secret:SLOT_NAME}}` 放置 embedding `api_key` 等密钥。设置了 `XDG_CONFIG_HOME` 的设备应执行 `agent-config-hub roots set cortexkit-home "$XDG_CONFIG_HOME/cortexkit"`。
 
 OMP 还支持根目录 `omp-notify.json`，按 JSON 校验，可使用完整标量 `{{secret:SLOT_NAME}}` 配置 Telegram 凭据；不放宽其他根目录 JSON 文件的路径限制。
 
 设备登记名称可作为完整字符串变量 `{{device:name}}` 使用，例如 OMP `omp-notify.json` 中的 `"device_name": "{{device:name}}"`。它取自当前拉取令牌对应设备注册时填写的名称，不是本机 hostname，也不是自动化令牌标签；环境变量覆盖令牌时同样使用该令牌的鉴权身份。只支持 JSON/JSONC/YAML/TOML/dotenv 的完整字符串值，禁止拼接、键名、注释和未知设备变量。
 
-含设备变量的新 Release 要求 CLI `0.2.4`，其他新 Release 保持最低 `0.2.3`，OMP adapter revision 仍为 5。CLI 先校验不可变原始下载的大小和 SHA-256，再按发布时冻结的精确位置替换；秘密值和设备名内的占位符不会递归展开。计划、安装状态、重复 pull 和 status 使用实际落盘字节的哈希。自动化令牌可以拉取无设备变量的配置，但需要设备名时明确失败。dotenv 无法无损表达的名称（如冲突引号组合、回车或 NUL）会在写目标前拒绝；不会偷偷改名。
+含设备变量的 Release 不再单独设置下限：所有新 Release 都要求 CLI `0.3.0`。CLI 先校验不可变原始下载的大小和 SHA-256，再按发布时冻结的精确位置替换；秘密值和设备名内的占位符不会递归展开。计划、安装状态、重复 pull 和 status 使用实际落盘字节的哈希。自动化令牌可以拉取无设备变量的配置，但需要设备名时明确失败。dotenv 无法无损表达的名称（如冲突引号组合、回车或 NUL）会在写目标前拒绝；不会偷偷改名。
 
 ## 架构
 
