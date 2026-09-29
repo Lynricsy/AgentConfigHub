@@ -88,7 +88,7 @@ An OMP config may publish `omp-home/agent-config-hub.json`. After a successful p
 }
 ```
 
-Point OMP at the cloned skills from the managed `config.yml`, e.g. `skills.customDirectories: ["~/.omp/agent/skill-repositories/hyperskills/skills"]`. Plugins are npm specs (use `@latest` to follow new versions); repositories must be `https://` URLs without embedded credentials and a branch or tag `ref`. Nothing is passed through a shell. A clone with local changes or a different `origin` is never overwritten; the pull reports the error and exits non-zero while the already installed files stay in place. `omp` and `git` must be on `PATH`.
+Point OMP at the cloned skills from the managed `config.yml`, e.g. `skills.customDirectories: ["~/.omp/agent/skill-repositories/hyperskills/skills"]`. Plugins are npm specs (use `@latest` to follow new versions); repositories must be `https://` URLs without embedded credentials and a branch or tag `ref`. Nothing is passed through a shell. Updates are strict fast-forwards: a clone with uncommitted changes, local commits, rewritten upstream history, or a different `origin` is never overwritten; the pull reports the error and exits non-zero while the already installed files stay in place. `omp` and `git` must be on `PATH`.
 
 ## Operations
 

@@ -50,7 +50,8 @@ export const runCommand: CommandRunner = async (command, args) => {
   }
 };
 
-async function syncRepository(
+// 导出供真实 Git 仓库测试使用。
+export async function syncSkillRepository(
   repository: SkillRepository,
   directory: string,
   dryRun: boolean,
@@ -81,9 +82,16 @@ async function syncRepository(
     throw new Error(`${directory} has local changes; refusing to update it.`);
   }
   const before = await head();
-  if (dryRun) return `would update from ${before} to latest ${repository.ref}`;
-  await run("git", ["-C", directory, "fetch", "--quiet", "--depth", "1", "origin", repository.ref]);
-  await run("git", ["-C", directory, "reset", "--quiet", "--hard", "FETCH_HEAD"]);
+  if (dryRun) return `would fast-forward from ${before} to latest ${repository.ref}`;
+  // 浅克隆中不带 --depth 的 fetch 只补齐到已有提交为止，新提交与本地 HEAD 保持相连，祖先判断才可靠。
+  await run("git", ["-C", directory, "fetch", "--quiet", "origin", repository.ref]);
+  try {
+    await run("git", ["-C", directory, "merge-base", "--is-ancestor", "HEAD", "FETCH_HEAD"]);
+  } catch {
+    // 本地提交、上游改写历史或祖先无法证明时一律拒绝，绝不丢弃提交。
+    throw new Error(`${directory} cannot be fast-forwarded to ${repository.ref} (local commits or rewritten history); remove the directory to re-clone it.`);
+  }
+  await run("git", ["-C", directory, "merge", "--quiet", "--ff-only", "FETCH_HEAD"]);
   const after = await head();
   return before === after ? `unchanged ${after}` : `updated ${before} -> ${after}`;
 }
@@ -108,7 +116,7 @@ export async function syncOmpExtras(options: OmpExtrasOptions): Promise<readonly
   }
   for (const repository of extras.skillRepositories) {
     const directory = join(options.ompHome, OMP_SKILL_REPOSITORY_DIRECTORY, repository.name);
-    actions.push({ kind: "skills", name: repository.name, result: await syncRepository(repository, directory, options.dryRun, run) });
+    actions.push({ kind: "skills", name: repository.name, result: await syncSkillRepository(repository, directory, options.dryRun, run) });
   }
   return actions;
 }

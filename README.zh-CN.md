@@ -88,7 +88,7 @@ OMP 配置可发布 `omp-home/agent-config-hub.json`。pull 成功写入 Release
 }
 ```
 
-在受管 `config.yml` 中让 OMP 读取克隆下来的技能，例如 `skills.customDirectories: ["~/.omp/agent/skill-repositories/hyperskills/skills"]`。插件是 npm 包规格（写 `@latest` 即每次跟随新版本）；仓库必须是不含内嵌凭据的 `https://` URL，`ref` 为分支或标签名。所有命令都不经过 shell。克隆目录存在本地改动或 `origin` 不一致时绝不覆盖：pull 报错并以非零退出，已安装的配置文件保持不变。设备的 `PATH` 中需要有 `omp` 和 `git`。
+在受管 `config.yml` 中让 OMP 读取克隆下来的技能，例如 `skills.customDirectories: ["~/.omp/agent/skill-repositories/hyperskills/skills"]`。插件是 npm 包规格（写 `@latest` 即每次跟随新版本）；仓库必须是不含内嵌凭据的 `https://` URL，`ref` 为分支或标签名。所有命令都不经过 shell。更新只做严格快进：克隆目录存在未提交改动、本地提交、上游改写历史或 `origin` 不一致时绝不覆盖：pull 报错并以非零退出，已安装的配置文件保持不变。设备的 `PATH` 中需要有 `omp` 和 `git`。
 
 ## 运维
 
