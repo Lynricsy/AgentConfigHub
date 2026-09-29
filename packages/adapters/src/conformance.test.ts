@@ -52,6 +52,9 @@ const excluded: Record<AgentId, readonly { root: LogicalTarget["root"]; path: st
     { root: "omp-home", path: "managed-skills/pkg/SKILL.md" },
     { root: "omp-home", path: "extensions/pkg/node_modules/a.js" },
     { root: "omp-home", path: "install-state.json" },
+    { root: "omp-home", path: "skill-repositories/hyperskills/skills/go/SKILL.md" },
+    { root: "cortexkit-home", path: "aft.jsonc" },
+    { root: "cortexkit-home", path: "magic-context.json" },
   ],
   grok: [
     { root: "grok-home", path: "auth.json" },
@@ -73,6 +76,7 @@ const rootSuffix: Record<TargetRootId, { posix: string; windows: string }> = {
   "pi-home": { posix: ".pi/agent", windows: ".pi\\agent" },
   "omp-home": { posix: ".omp/agent", windows: ".omp\\agent" },
   "grok-home": { posix: ".grok", windows: ".grok" },
+  "cortexkit-home": { posix: ".config/cortexkit", windows: ".config\\cortexkit" },
 };
 
 const instructionTarget: Record<AgentId, LogicalTarget> = {
@@ -306,6 +310,46 @@ it("does not flag real omp settings keys as unknown", async () => {
     executable: false,
   });
   expect(diagnostics).toEqual([]);
+});
+
+it("manages the Magic Context user config under cortexkit-home", () => {
+  const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
+  expect(assertAllowedTarget(adapter, {
+    root: "cortexkit-home",
+    relativePath: "magic-context.jsonc",
+  })).toMatchObject({ format: "jsonc", reserved: false });
+});
+
+describe("OMP extras declaration validation", () => {
+  const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
+  const validate = async (value: unknown) => await adapter.validate({
+    agentId: "omp",
+    target: { root: "omp-home", relativePath: "agent-config-hub.json" },
+    mediaType: "application/json",
+    format: "json",
+    text: JSON.stringify(value),
+    executable: false,
+  });
+
+  it("accepts npm plugin specs and https skill repositories", async () => {
+    expect(await validate({
+      version: 1,
+      plugins: ["@cortexkit/pi-magic-context@latest", "plain-plugin"],
+      skillRepositories: [{ name: "hyperskills", url: "https://github.com/Lynricsy/HyperSkills.git", ref: "main" }],
+    })).toEqual([]);
+  });
+
+  it.each([
+    ["option-like plugin", { version: 1, plugins: ["--registry=https://evil.example"] }],
+    ["duplicate plugin package", { version: 1, plugins: ["@a/b", "@a/b@latest"] }],
+    ["non-https repository", { version: 1, skillRepositories: [{ name: "x", url: "http://example.com/x.git" }] }],
+    ["credentials in repository URL", { version: 1, skillRepositories: [{ name: "x", url: "https://user:token@example.com/x.git" }] }],
+    ["option-like ref", { version: 1, skillRepositories: [{ name: "x", url: "https://example.com/x.git", ref: "-upload-pack=x" }] }],
+    ["path-like repository name", { version: 1, skillRepositories: [{ name: "../x", url: "https://example.com/x.git" }] }],
+    ["unknown key", { version: 1, commands: ["rm -rf /"] }],
+  ])("rejects %s", async (_label, value) => {
+    expect((await validate(value)).some(({ severity, code }) => severity === "error" && code === "SCHEMA_VALIDATION_ERROR")).toBe(true);
+  });
 });
 
 describe("cross-platform target safety", () => {

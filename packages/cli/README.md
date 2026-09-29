@@ -58,6 +58,12 @@ Inspect the installed state:
 npx --yes agent-config-hub@latest status --profile main
 ```
 
+## OMP plugins and skill repositories
+
+When the release contains `omp-home/agent-config-hub.json`, every pull (after the files are installed) runs `omp plugin install <spec>` for each declared plugin and clones or fast-forwards each declared `https://` skill repository into `<omp-home>/skill-repositories/<name>`. `--dry-run` only prints the plan. Clones with local changes or a different `origin` are never overwritten; the command exits non-zero instead. `omp` and `git` must be on `PATH`.
+
+The Magic Context user config is managed under the `cortexkit-home` root (default `~/.config/cortexkit`); with `XDG_CONFIG_HOME` set, run `agent-config-hub roots set cortexkit-home "$XDG_CONFIG_HOME/cortexkit"` once.
+
 ## Automation
 
 Keep pull tokens out of command arguments:

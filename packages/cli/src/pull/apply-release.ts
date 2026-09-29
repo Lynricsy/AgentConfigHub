@@ -157,7 +157,7 @@ function assertManifest(options: PullOptions): void {
   }
 }
 
-function clientContext(options: PullOptions): ClientPathContext {
+export function clientContext(options: PullOptions): ClientPathContext {
   const platform = options.platform ?? process.platform;
   if (!(platform === "linux" || platform === "darwin" || platform === "win32")) throw new Error(`Unsupported platform: ${platform}`);
   return {

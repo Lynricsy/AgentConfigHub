@@ -25,9 +25,10 @@ import type { EncryptedBlobStore } from "../storage/encrypted-blob-store.js";
 import { RevisionConflictError } from "./draft-revision.js";
 import { SecretBindingResolver, type ResolvedSecret } from "./secret-binding-resolver.js";
 
-// OMP adapter revision 5 新增 omp-notify.json 受管面；
-// 旧 CLI 不识别该契约，因此任何新 release 都必须在写文件前拒绝旧版本。
-const MIN_CLI_VERSION = "0.2.3";
+// OMP adapter revision 6 新增 cortexkit-home 根、magic-context.jsonc 与 agent-config-hub.json 附加安装声明；
+// 旧 CLI 不识别该契约（也不会执行附加安装），因此任何新 release 都必须在写文件前拒绝旧版本。
+// 该下限高于设备变量所需的 0.2.4，因此不再区分是否含设备变量。
+const MIN_CLI_VERSION = "0.3.0";
 
 interface ConfigSetRow {
   id: string;
@@ -432,7 +433,6 @@ export class PublishService {
       const adapterRevisions = Object.fromEntries(
         Object.entries(adapterRegistry).map(([agentId, adapter]) => [agentId, adapter.revision]),
       );
-      const minCliVersion = prepared.some((output) => output.deviceNameSlots) ? "0.2.4" : MIN_CLI_VERSION;
       this.#database.native.prepare(`
         INSERT INTO releases (
           id, config_set_id, release_number, draft_revision, enabled_agents,
@@ -445,7 +445,7 @@ export class PublishService {
         expectedDraftRevision,
         JSON.stringify(enabledAgents),
         notes ?? null,
-        minCliVersion,
+        MIN_CLI_VERSION,
         JSON.stringify(adapterRevisions),
         Date.now(),
       );
@@ -523,7 +523,7 @@ export class PublishService {
         enabledAgents,
         selection: "all-enabled",
         includedAgents: enabledAgents,
-        minCliVersion,
+        minCliVersion: MIN_CLI_VERSION,
         adapterRevisions,
         files: manifestFiles,
       });

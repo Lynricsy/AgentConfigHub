@@ -21,7 +21,8 @@ import {
   updateLocalConfig,
   type LocalPaths,
 } from "./local-store.js";
-import { applyRelease, recoverInterruptedTransactions, type PullAction } from "./pull/apply-release.js";
+import { applyRelease, clientContext, recoverInterruptedTransactions, type PullAction, type PullOptions } from "./pull/apply-release.js";
+import { syncOmpExtras } from "./pull/omp-extras.js";
 import { loadStates } from "./state.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -137,7 +138,7 @@ async function pull(args: Arguments, paths: LocalPaths, environment: NodeJS.Proc
   const config = await readLocalConfig(paths);
   const { server, token } = credentials(config, environment);
   const api = new ApiClient(server, token);
-  const result = await applyRelease({
+  const options: PullOptions = {
     api,
     paths,
     manifest: await api.manifest(profile, agents),
@@ -149,9 +150,18 @@ async function pull(args: Arguments, paths: LocalPaths, environment: NodeJS.Proc
     dryRun,
     replaceSymlink,
     forceRemoveModified,
-  });
+  };
+  const result = await applyRelease(options);
   for (const action of result.actions) printAction(action);
   process.stdout.write(`${dryRun ? "Dry run" : "Installed"} release ${result.releaseNumber}${result.backupId ? `; backup ${result.backupId}` : ""}.\n`);
+  // 附加安装在配置文件落盘之后执行；失败时已安装的配置保持不变，命令以错误退出。
+  const extras = await syncOmpExtras({
+    api,
+    manifest: options.manifest,
+    ompHome: getAdapter("omp").resolveRoot("omp-home", clientContext(options)),
+    dryRun,
+  });
+  for (const { kind, name, result: outcome } of extras) process.stdout.write(`${kind.padEnd(9)} ${name} ${outcome}\n`);
 }
 
 async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.ProcessEnv): Promise<void> {

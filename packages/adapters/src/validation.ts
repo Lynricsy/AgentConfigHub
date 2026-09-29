@@ -3,7 +3,7 @@ import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { parse as parseToml } from "smol-toml";
 import { parseDocument } from "yaml";
 
-import type { AgentId, Diagnostic } from "@agent-config-hub/protocol";
+import { OMP_EXTRAS_PATH, OmpExtrasV1, type AgentId, type Diagnostic } from "@agent-config-hub/protocol";
 
 import type { AdapterFile } from "./contract.js";
 import { ADAPTER_SCHEMA_SNAPSHOTS } from "./schema-snapshots.js";
@@ -81,7 +81,17 @@ export async function validateAdapterFile(file: AdapterFile): Promise<readonly D
     diagnostics.push(syntaxDiagnostic(error instanceof Error ? error.message : `Invalid ${file.format} syntax.`));
   }
 
-  if (diagnostics.some(({ severity }) => severity === "error") || !isPrimaryConfig(file)) return diagnostics;
+  if (diagnostics.some(({ severity }) => severity === "error")) return diagnostics;
+  if (file.agentId === "omp" && file.target.root === "omp-home" && file.target.relativePath === OMP_EXTRAS_PATH) {
+    const result = OmpExtrasV1.safeParse(parsed);
+    if (!result.success) for (const issue of result.error.issues) diagnostics.push({
+      code: "SCHEMA_VALIDATION_ERROR",
+      severity: "error",
+      message: `/${issue.path.join("/")} ${issue.message}`,
+    });
+    return diagnostics;
+  }
+  if (!isPrimaryConfig(file)) return diagnostics;
   const snapshot = ADAPTER_SCHEMA_SNAPSHOTS[file.agentId];
   const validator = validatorByAgent[file.agentId];
   if (!validator(parsed)) {

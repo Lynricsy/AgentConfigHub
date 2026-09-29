@@ -17,6 +17,7 @@ export const TargetRootId = z.enum([
   "pi-home",
   "omp-home",
   "grok-home",
+  "cortexkit-home",
 ]);
 
 export const LogicalTarget = z.object({

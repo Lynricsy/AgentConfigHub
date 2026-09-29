@@ -1,7 +1,7 @@
 import { join as posixJoin } from "node:path/posix";
 import { join as windowsJoin } from "node:path/win32";
 
-import type { AgentId, Diagnostic, LogicalTarget, TargetRootId } from "@agent-config-hub/protocol";
+import { OMP_EXTRAS_PATH, type AgentId, type Diagnostic, type LogicalTarget, type TargetRootId } from "@agent-config-hub/protocol";
 
 import type {
   AgentAdapter,
@@ -105,9 +105,10 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "omp",
-    revision: 5,
-    roots: ["omp-home"],
-    defaults: { "omp-home": [".omp", "agent"] },
+    revision: 6,
+    roots: ["omp-home", "cortexkit-home"],
+    // cortexkit-home 是 Magic Context 的用户级配置目录；设置了 XDG_CONFIG_HOME 的设备用 roots set 覆盖。
+    defaults: { "omp-home": [".omp", "agent"], "cortexkit-home": [".config", "cortexkit"] },
     instructionTarget: { root: "omp-home", relativePath: "AGENTS.md" },
     skillRoot: "omp-home",
     skillDirectory: "skills",
@@ -117,6 +118,8 @@ const definitions: readonly AdapterDefinition[] = [
       surface("omp-home", "keybindings.json", "json"),
       surface("omp-home", "mcp.json", "json"),
       surface("omp-home", "omp-notify.json", "json"),
+      surface("omp-home", OMP_EXTRAS_PATH, "json"),
+      surface("cortexkit-home", "magic-context.jsonc", "jsonc"),
       surface("omp-home", "AGENTS.md", "markdown", true),
       ...["RULES.md", "SYSTEM.md", "APPEND_SYSTEM.md", "TITLE_SYSTEM.md"].map((path) => surface("omp-home", path, "markdown")),
       ...["skills", "commands", "rules", "prompts", "role-prompts", "instructions", "hooks", "tools", "extensions"].map((directory) =>

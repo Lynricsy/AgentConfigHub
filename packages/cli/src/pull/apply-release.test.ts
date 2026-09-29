@@ -56,7 +56,7 @@ function manifest(releaseNumber: number, files: ReleaseFileV1[]) {
       codex: 2,
       opencode: 2,
       pi: 2,
-      omp: 5,
+      omp: 6,
       grok: 2,
     },
     files,
