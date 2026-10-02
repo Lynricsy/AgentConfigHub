@@ -4,10 +4,10 @@ import { stripVTControlCharacters, styleText } from "node:util";
 
 // 终端展示层：输出流是 TTY 时渲染彩色表格、面板与加载动画；
 // 否则输出不带装饰的纯文本（表格为无表头 TSV），保持脚本可解析。
-// 颜色由 styleText 按流能力与 NO_COLOR/FORCE_COLOR 自动启用或剥离。
 
-export type Style = Parameters<typeof styleText>[0];
 type Stream = NodeJS.WriteStream;
+type Tone = keyof typeof TONES;
+export type Style = Tone | "bold" | "underline" | readonly (Tone | "bold" | "underline")[];
 
 export const symbols = {
   success: "✔",
@@ -17,14 +17,40 @@ export const symbols = {
   brand: "◆",
 } as const;
 
+// 语义配色：真彩色终端用浅色调，在黑底与半透明灰底上都清晰；不足 24 位色时退回 ANSI 高亮色。
+// 刻意不用 dim：在半透明或浅色背景的终端里 dim 文本几乎不可见。
+const TONES = {
+  heading: { rgb: [0xff, 0xa3, 0xe6], fallback: "magentaBright" },
+  accent: { rgb: [0x7f, 0xe3, 0xff], fallback: "cyanBright" },
+  number: { rgb: [0xff, 0xe2, 0x7a], fallback: "yellowBright" },
+  path: { rgb: [0xb4, 0xcc, 0xff], fallback: "blueBright" },
+  sensitive: { rgb: [0xff, 0xa8, 0xd8], fallback: "magentaBright" },
+  success: { rgb: [0x9c, 0xff, 0xa0], fallback: "greenBright" },
+  warning: { rgb: [0xff, 0xc2, 0x7a], fallback: "yellowBright" },
+  danger: { rgb: [0xff, 0x9a, 0x9a], fallback: "redBright" },
+  unchanged: { rgb: [0xc9, 0xbf, 0xff], fallback: "blueBright" },
+} as const;
+
 const INDENT = "  ";
 
 export function isRich(stream: Stream = process.stdout): boolean {
   return stream.isTTY === true;
 }
 
+// getColorDepth 已遵循 NO_COLOR / FORCE_COLOR / TERM=dumb；非 TTY 交给 styleText 判断 FORCE_COLOR。
 export function paint(style: Style, text: string, stream: Stream = process.stdout): string {
-  return styleText(style, text, { stream });
+  const parts = typeof style === "string" ? [style] : style;
+  if (stream.isTTY && stream.getColorDepth() >= 24) {
+    const open: string[] = [];
+    const close: string[] = [];
+    for (const part of parts) {
+      if (part === "bold") { open.push("1"); close.push("22"); }
+      else if (part === "underline") { open.push("4"); close.push("24"); }
+      else { open.push(`38;2;${TONES[part].rgb.join(";")}`); close.push("39"); }
+    }
+    return `\x1b[${open.join(";")}m${text}\x1b[${close.join(";")}m`;
+  }
+  return styleText(parts.map((part) => part === "bold" || part === "underline" ? part : TONES[part].fallback), text, { stream });
 }
 
 function isWide(codePoint: number): boolean {
@@ -107,7 +133,7 @@ export function printTable(rows: readonly (readonly Cell[])[], options: TableOpt
     for (const row of rows) out.write(`${row.map((cell) => typeof cell === "string" ? cell : cell.plain ?? cell.text).join("\t")}\n`);
     return;
   }
-  const header: Cell[] | undefined = options.header?.map((text) => ({ text, style: ["bold", "dim"] }));
+  const header: Cell[] | undefined = options.header?.map((text) => ({ text, style: ["bold", "underline", "heading"] }));
   const all = header ? [header, ...rows] : rows;
   const widths: number[] = [];
   for (const row of all) {
@@ -131,14 +157,14 @@ export function printPanel(title: string, pairs: readonly (readonly [key: string
   const keyWidth = Math.max(...pairs.map(([key]) => displayWidth(key)));
   const lines = pairs.map(([key, value, style]) => ({
     width: keyWidth + 3 + displayWidth(value),
-    text: `${paint("dim", key + " ".repeat(keyWidth - displayWidth(key)))}   ${style ? paint(style, value) : value}`,
+    text: `${paint(["bold", "heading"], key + " ".repeat(keyWidth - displayWidth(key)))}   ${style ? paint(style, value) : value}`,
   }));
   const titleWidth = displayWidth(title);
   // 内宽 = 最长内容 + 左右各 2 列留白；标题栏同样不能溢出。
   const inner = Math.max(titleWidth + 4, ...lines.map(({ width }) => width)) + 4;
-  const border = (text: string) => paint("cyan", text);
+  const border = (text: string) => paint("accent", text);
   const empty = `${INDENT}${border("│")}${" ".repeat(inner)}${border("│")}\n`;
-  out.write(`\n${INDENT}${border("╭─")} ${paint("bold", title)} ${border(`${"─".repeat(inner - titleWidth - 3)}╮`)}\n`);
+  out.write(`\n${INDENT}${border("╭─")} ${paint(["bold", "number"], title)} ${border(`${"─".repeat(inner - titleWidth - 3)}╮`)}\n`);
   out.write(empty);
   for (const line of lines) out.write(`${INDENT}${border("│")}  ${line.text}${" ".repeat(inner - 2 - line.width)}${border("│")}\n`);
   out.write(empty);
@@ -148,7 +174,7 @@ export function printPanel(title: string, pairs: readonly (readonly [key: string
 /** 区块标题，仅富文本模式输出。 */
 export function printHeading(title: string, detail?: string): void {
   if (!isRich()) return;
-  process.stdout.write(`\n${INDENT}${paint("bold", title)}${detail ? `  ${paint("dim", detail)}` : ""}\n\n`);
+  process.stdout.write(`\n${INDENT}${paint(["bold", "heading"], title)}${detail ? `  ${paint("number", detail)}` : ""}\n\n`);
 }
 
 /** 富文本模式输出子标题行（已带缩进），纯文本模式不输出。 */
@@ -160,10 +186,10 @@ function message(stream: Stream, style: Style, symbol: string, text: string): vo
   stream.write(isRich(stream) ? `${INDENT}${paint(style, symbol, stream)} ${text}\n` : `${text}\n`);
 }
 
-export const success = (text: string) => message(process.stdout, "green", symbols.success, text);
-export const info = (text: string) => message(process.stdout, "cyan", symbols.info, text);
-export const warning = (text: string) => message(process.stdout, "yellow", symbols.warning, text);
-export const failure = (text: string) => message(process.stderr, "red", symbols.failure, text);
+export const success = (text: string) => message(process.stdout, "success", symbols.success, text);
+export const info = (text: string) => message(process.stdout, "accent", symbols.info, text);
+export const warning = (text: string) => message(process.stdout, "warning", symbols.warning, text);
+export const failure = (text: string) => message(process.stderr, "danger", symbols.failure, text);
 
 export interface Spinner {
   stop(): void;
@@ -177,7 +203,7 @@ export function startSpinner(text: string | (() => string)): Spinner {
   let frame = 0;
   const render = () => {
     const label = typeof text === "string" ? text : text();
-    stream.write(`\r\x1b[2K${INDENT}${paint("cyan", frames[frame++ % frames.length]!, stream)} ${label}`);
+    stream.write(`\r\x1b[2K${INDENT}${paint("accent", frames[frame++ % frames.length]!, stream)} ${label}`);
   };
   render();
   const timer = setInterval(render, 80);

@@ -107,10 +107,10 @@ function parseRootOverrides(values: readonly string[]): Partial<Record<Root, str
 }
 
 const ACTION_STYLES: Record<PullAction["action"], { readonly symbol: string; readonly style: Style }> = {
-  add: { symbol: "+", style: "green" },
-  replace: { symbol: "~", style: "yellow" },
-  remove: { symbol: "-", style: "red" },
-  unchanged: { symbol: "=", style: "dim" },
+  add: { symbol: "+", style: "success" },
+  replace: { symbol: "~", style: "warning" },
+  remove: { symbol: "-", style: "danger" },
+  unchanged: { symbol: "=", style: "unchanged" },
 };
 
 const ACTION_SUMMARY: Record<PullAction["action"], string> = {
@@ -123,10 +123,10 @@ const ACTION_SUMMARY: Record<PullAction["action"], string> = {
 type FileState = "clean" | "modified" | "missing" | "conflict";
 
 const FILE_STATES: Record<FileState, { readonly symbol: string; readonly style: Style }> = {
-  clean: { symbol: symbols.success, style: "green" },
-  modified: { symbol: "✎", style: "yellow" },
-  missing: { symbol: symbols.failure, style: "red" },
-  conflict: { symbol: symbols.warning, style: "red" },
+  clean: { symbol: symbols.success, style: "success" },
+  modified: { symbol: "✎", style: "warning" },
+  missing: { symbol: symbols.failure, style: "danger" },
+  conflict: { symbol: symbols.warning, style: "danger" },
 };
 
 function printPullResult(result: PullResult, profile: string): void {
@@ -144,21 +144,21 @@ function printPullResult(result: PullResult, profile: string): void {
     const { symbol, style } = ACTION_STYLES[action.action];
     return [
       { text: `${symbol} ${action.action}`, style },
-      { text: displayPath(action.path), ...(action.action === "unchanged" ? { style: "dim" } : {}) },
-      { text: action.action === "remove" ? "" : formatBytes(action.size), style: "dim" },
-      { text: action.sensitive ? "sensitive" : "", style: "magenta" },
+      displayPath(action.path),
+      { text: action.action === "remove" ? "" : formatBytes(action.size), style: "number" },
+      { text: action.sensitive ? "sensitive" : "", style: "sensitive" },
     ];
   }));
   const counts: Record<PullAction["action"], number> = { add: 0, replace: 0, remove: 0, unchanged: 0 };
   for (const { action } of result.actions) counts[action] += 1;
   const parts = (Object.keys(ACTION_SUMMARY) as PullAction["action"][])
     .filter((action) => counts[action] > 0)
-    .map((action) => `${counts[action]} ${ACTION_SUMMARY[action]}`);
+    .map((action) => paint(ACTION_STYLES[action].style, `${counts[action]} ${ACTION_SUMMARY[action]}`));
   const summary = [
-    `${result.dryRun ? "Dry run of" : "Installed"} release #${result.releaseNumber}`,
+    `${result.dryRun ? "Dry run of" : "Installed"} release ${paint(["bold", "number"], `#${result.releaseNumber}`)}`,
     ...(parts.length > 0 ? [parts.join(", ")] : []),
-    ...(result.backupId ? [`backup ${result.backupId}`] : []),
-  ].join(paint("dim", " · "));
+    ...(result.backupId ? [`backup ${paint("accent", result.backupId)}`] : []),
+  ].join(" · ");
   process.stdout.write("\n");
   if (result.dryRun) info(summary);
   else success(summary);
@@ -172,9 +172,9 @@ function printOmpExtras(extras: readonly OmpExtrasAction[]): void {
   if (extras.length === 0) return;
   printHeading("OMP extras");
   printTable(extras.map(({ kind, name, result }): Cell[] => [
-    { text: kind, style: "cyan" },
-    name,
-    { text: result, style: result.startsWith("would") ? "yellow" : result.startsWith("unchanged") ? "dim" : "green" },
+    { text: kind, style: "accent" },
+    { text: name, style: "bold" },
+    { text: result, style: result.startsWith("would") ? "warning" : result.startsWith("unchanged") ? "unchanged" : "success" },
   ]));
 }
 
@@ -187,15 +187,15 @@ async function login(args: Arguments, paths: LocalPaths): Promise<void> {
   const api = new ApiClient(server);
   const authorization = await api.createDeviceAuthorization(deviceName, CLI_VERSION);
   printPanel("Device authorization", [
-    ["Open", authorization.verificationUri, ["cyan", "underline"]],
-    ["User code", authorization.userCode, ["bold", "yellow"]],
+    ["Open", authorization.verificationUri, ["accent", "underline"]],
+    ["User code", authorization.userCode, ["bold", "number"]],
   ]);
   try { await openBrowser(authorization.verificationUri, { wait: false }); }
   catch { warning("Could not open a browser; use the verification URL on any device."); }
   const deadline = Date.now() + authorization.expiresIn * 1000;
   const spinner = startSpinner(() => {
     const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
-    return `Waiting for approval ${paint("dim", `(${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} left)`, process.stderr)}`;
+    return `Waiting for approval ${paint("number", `(${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} left)`, process.stderr)}`;
   });
   try {
     while (Date.now() < deadline) {
@@ -226,7 +226,7 @@ async function listConfigSets(paths: LocalPaths, environment: NodeJS.ProcessEnv)
     return;
   }
   printHeading("Config sets", `${configSets.length} available`);
-  printTable(configSets.map((profile): Cell[] => [{ text: profile.slug, style: "cyan" }, profile.name]), { header: ["Slug", "Name"] });
+  printTable(configSets.map((profile): Cell[] => [{ text: profile.slug, style: "accent" }, profile.name]), { header: ["Slug", "Name"] });
 }
 
 async function pull(args: Arguments, paths: LocalPaths, environment: NodeJS.ProcessEnv): Promise<void> {
@@ -290,7 +290,7 @@ async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.Pr
   const totals: Record<FileState, number> = { clean: 0, modified: 0, missing: 0, conflict: 0 };
   for (const state of states) {
     if (rich) {
-      printRichLine(`${paint("bold", state.agentId)}${paint("dim", "/")}${state.rootId}  ${paint("dim", `release #${state.releaseNumber} · ${displayPath(state.resolvedRoot)}`)}`);
+      printRichLine(`${paint(["bold", "heading"], state.agentId)}/${paint("accent", state.rootId)}  ${paint("number", `release #${state.releaseNumber}`)} · ${paint("path", displayPath(state.resolvedRoot))}`);
     } else {
       process.stdout.write(`${state.agentId}/${state.rootId} release=${state.releaseNumber} root=${state.resolvedRoot}\n`);
     }
@@ -324,8 +324,8 @@ async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.Pr
         rows.push([
           { text: `${symbol} ${fileState}`, style },
           file.relativePath,
-          { text: file.sensitive ? "sensitive" : "", style: "magenta" },
-          { text: note, style: "dim" },
+          { text: file.sensitive ? "sensitive" : "", style: "sensitive" },
+          { text: note, style: "danger" },
         ]);
       } else {
         process.stdout.write(`  ${fileState} ${file.relativePath}${file.sensitive ? " sensitive" : ""}${note ? ` (${note})` : ""}\n`);
@@ -338,8 +338,13 @@ async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.Pr
   }
   if (!rich) return;
   const issues = (["modified", "missing", "conflict"] as const).filter((state) => totals[state] > 0);
-  if (issues.length === 0) success(`All ${totals.clean} managed files match their installed release.`);
-  else warning([`${totals.clean} clean`, ...issues.map((state) => `${totals[state]} ${state}`)].join(paint("dim", " · ")));
+  if (issues.length === 0) success(`All ${paint(["bold", "success"], String(totals.clean))} managed files match their installed release.`);
+  else {
+    warning([
+      paint(FILE_STATES.clean.style, `${totals.clean} clean`),
+      ...issues.map((state) => paint(FILE_STATES[state].style, `${totals[state]} ${state}`)),
+    ].join(" · "));
+  }
 }
 
 async function backups(args: Arguments, paths: LocalPaths): Promise<void> {
@@ -353,10 +358,10 @@ async function backups(args: Arguments, paths: LocalPaths): Promise<void> {
     }
     printHeading("Backups", `${records.length} stored locally`);
     printTable(records.map((backup): Cell[] => [
-      { text: backup.id, style: "cyan" },
+      { text: backup.id, style: "accent" },
       backup.profile,
-      { text: `#${backup.releaseNumber}`, plain: `release=${backup.releaseNumber}` },
-      { text: formatTimestamp(backup.createdAt), plain: backup.createdAt, style: "dim" },
+      { text: `#${backup.releaseNumber}`, plain: `release=${backup.releaseNumber}`, style: "number" },
+      { text: formatTimestamp(backup.createdAt), plain: backup.createdAt, style: "path" },
     ]), { header: ["ID", "Profile", "Release", "Created"] });
     return;
   }
@@ -379,7 +384,10 @@ async function roots(args: Arguments, paths: LocalPaths): Promise<void> {
     printHeading("Target roots");
     printTable(TargetRootId.options.map((root): Cell[] => {
       const override = config.rootOverrides[root];
-      return [{ text: root, style: "cyan" }, override ? { text: displayPath(override), plain: override } : { text: "default", style: "dim" }];
+      return [
+        { text: root, style: "accent" },
+        override ? { text: displayPath(override), plain: override, style: "success" } : { text: "default", style: "unchanged" },
+      ];
     }), { header: ["Root", "Path"] });
     return;
   }
@@ -459,13 +467,13 @@ export function usage(): string {
   const nameWidth = Math.max(...COMMANDS.map(({ name }) => name.length)) + 3;
   const lines = [
     "",
-    `  ${paint("cyan", symbols.brand)} ${paint("bold", "agent-config-hub")} ${paint("dim", `v${CLI_VERSION}`)}`,
-    `    ${paint("dim", "Pull immutable AgentConfigHub releases with transactional backups and crash recovery.")}`,
+    `  ${paint("heading", symbols.brand)} ${paint(["bold", "accent"], "agent-config-hub")} ${paint("number", `v${CLI_VERSION}`)}`,
+    "    Pull immutable AgentConfigHub releases with transactional backups and crash recovery.",
     "",
-    `  ${paint("bold", "Usage")}`,
-    `    agent-config-hub ${paint("cyan", "<command>")} [options]`,
+    `  ${paint(["bold", "heading"], "Usage")}`,
+    `    agent-config-hub ${paint("accent", "<command>")} ${paint("success", "[options]")}`,
     "",
-    `  ${paint("bold", "Commands")}`,
+    `  ${paint(["bold", "heading"], "Commands")}`,
   ];
   const gutter = " ".repeat(4 + nameWidth);
   for (const command of COMMANDS) {
@@ -476,12 +484,12 @@ export function usage(): string {
       if (last !== undefined && gutter.length + last.length + 1 + arg.length <= width) argLines[argLines.length - 1] = `${last} ${arg}`;
       else argLines.push(arg);
     }
-    const [first, ...rest] = [...argLines, paint("dim", command.summary)];
-    lines.push(`    ${paint(["bold", "cyan"], command.name.padEnd(nameWidth))}${first}`, ...rest.map((line) => `${gutter}${line}`));
+    const [first, ...rest] = [...argLines.map((line) => paint("success", line)), command.summary];
+    lines.push(`    ${paint(["bold", "accent"], command.name.padEnd(nameWidth))}${first}`, ...rest.map((line) => `${gutter}${line}`));
   }
   const keyWidth = Math.max(...HELP_EXTRAS.flatMap(({ entries }) => entries.map(([key]) => key.length))) + 3;
   for (const { title, entries } of HELP_EXTRAS) {
-    lines.push("", `  ${paint("bold", title)}`, ...entries.map(([key, description]) => `    ${paint("cyan", key.padEnd(keyWidth))}${paint("dim", description)}`));
+    lines.push("", `  ${paint(["bold", "heading"], title)}`, ...entries.map(([key, description]) => `    ${paint("accent", key.padEnd(keyWidth))}${description}`));
   }
   return `${lines.join("\n")}\n\n`;
 }
