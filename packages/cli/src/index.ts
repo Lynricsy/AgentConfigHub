@@ -2,20 +2,21 @@
 
 import { CliApiError } from "./api-client.js";
 import { runCli, usage } from "./commands.js";
+import { failure } from "./ui.js";
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv.length === 0 || argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(`${usage()}\n`);
+    process.stdout.write(usage());
     return;
   }
   try {
     await runCli(argv);
   } catch (error) {
     if (error instanceof CliApiError) {
-      process.stderr.write(`${error.code}: ${error.message}${error.requestId ? ` (${error.requestId})` : ""}\n`);
+      failure(`${error.code}: ${error.message}${error.requestId ? ` (${error.requestId})` : ""}`);
     } else {
-      process.stderr.write(`${error instanceof Error ? error.message : "CLI operation failed."}\n`);
+      failure(error instanceof Error ? error.message : "CLI operation failed.");
     }
     process.exitCode = 1;
   }

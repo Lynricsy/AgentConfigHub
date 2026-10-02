@@ -21,9 +21,28 @@ import {
   updateLocalConfig,
   type LocalPaths,
 } from "./local-store.js";
-import { applyRelease, clientContext, recoverInterruptedTransactions, type PullAction, type PullOptions } from "./pull/apply-release.js";
-import { syncOmpExtras } from "./pull/omp-extras.js";
+import { applyRelease, clientContext, recoverInterruptedTransactions, type PullAction, type PullOptions, type PullResult } from "./pull/apply-release.js";
+import { syncOmpExtras, type OmpExtrasAction } from "./pull/omp-extras.js";
 import { loadStates } from "./state.js";
+import {
+  displayPath,
+  formatBytes,
+  formatTimestamp,
+  info,
+  isRich,
+  paint,
+  printHeading,
+  printPanel,
+  printRichLine,
+  printTable,
+  startSpinner,
+  success,
+  symbols,
+  warning,
+  withSpinner,
+  type Cell,
+  type Style,
+} from "./ui.js";
 import { CLI_VERSION } from "./version.js";
 
 const sleep = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -87,9 +106,76 @@ function parseRootOverrides(values: readonly string[]): Partial<Record<Root, str
   return overrides;
 }
 
-function printAction(action: PullAction): void {
-  const digest = action.sha256 ? ` sha256=${action.sha256}` : "";
-  process.stdout.write(`${action.action.padEnd(9)} ${action.path} size=${action.size}${digest}${action.sensitive ? " sensitive" : ""}\n`);
+const ACTION_STYLES: Record<PullAction["action"], { readonly symbol: string; readonly style: Style }> = {
+  add: { symbol: "+", style: "green" },
+  replace: { symbol: "~", style: "yellow" },
+  remove: { symbol: "-", style: "red" },
+  unchanged: { symbol: "=", style: "dim" },
+};
+
+const ACTION_SUMMARY: Record<PullAction["action"], string> = {
+  add: "added",
+  replace: "replaced",
+  remove: "removed",
+  unchanged: "unchanged",
+};
+
+type FileState = "clean" | "modified" | "missing" | "conflict";
+
+const FILE_STATES: Record<FileState, { readonly symbol: string; readonly style: Style }> = {
+  clean: { symbol: symbols.success, style: "green" },
+  modified: { symbol: "✎", style: "yellow" },
+  missing: { symbol: symbols.failure, style: "red" },
+  conflict: { symbol: symbols.warning, style: "red" },
+};
+
+function printPullResult(result: PullResult, profile: string): void {
+  if (!isRich()) {
+    // 纯文本格式与旧版逐字一致，供脚本解析。
+    for (const action of result.actions) {
+      const digest = action.sha256 ? ` sha256=${action.sha256}` : "";
+      process.stdout.write(`${action.action.padEnd(9)} ${action.path} size=${action.size}${digest}${action.sensitive ? " sensitive" : ""}\n`);
+    }
+    process.stdout.write(`${result.dryRun ? "Dry run" : "Installed"} release ${result.releaseNumber}${result.backupId ? `; backup ${result.backupId}` : ""}.\n`);
+    return;
+  }
+  printHeading(`Release #${result.releaseNumber}`, `${profile}${result.dryRun ? " · dry run, nothing written" : ""}`);
+  printTable(result.actions.map((action): Cell[] => {
+    const { symbol, style } = ACTION_STYLES[action.action];
+    return [
+      { text: `${symbol} ${action.action}`, style },
+      { text: displayPath(action.path), ...(action.action === "unchanged" ? { style: "dim" } : {}) },
+      { text: action.action === "remove" ? "" : formatBytes(action.size), style: "dim" },
+      { text: action.sensitive ? "sensitive" : "", style: "magenta" },
+    ];
+  }));
+  const counts: Record<PullAction["action"], number> = { add: 0, replace: 0, remove: 0, unchanged: 0 };
+  for (const { action } of result.actions) counts[action] += 1;
+  const parts = (Object.keys(ACTION_SUMMARY) as PullAction["action"][])
+    .filter((action) => counts[action] > 0)
+    .map((action) => `${counts[action]} ${ACTION_SUMMARY[action]}`);
+  const summary = [
+    `${result.dryRun ? "Dry run of" : "Installed"} release #${result.releaseNumber}`,
+    ...(parts.length > 0 ? [parts.join(", ")] : []),
+    ...(result.backupId ? [`backup ${result.backupId}`] : []),
+  ].join(paint("dim", " · "));
+  process.stdout.write("\n");
+  if (result.dryRun) info(summary);
+  else success(summary);
+}
+
+function printOmpExtras(extras: readonly OmpExtrasAction[]): void {
+  if (!isRich()) {
+    for (const { kind, name, result } of extras) process.stdout.write(`${kind.padEnd(9)} ${name} ${result}\n`);
+    return;
+  }
+  if (extras.length === 0) return;
+  printHeading("OMP extras");
+  printTable(extras.map(({ kind, name, result }): Cell[] => [
+    { text: kind, style: "cyan" },
+    name,
+    { text: result, style: result.startsWith("would") ? "yellow" : result.startsWith("unchanged") ? "dim" : "green" },
+  ]));
 }
 
 async function login(args: Arguments, paths: LocalPaths): Promise<void> {
@@ -100,21 +186,33 @@ async function login(args: Arguments, paths: LocalPaths): Promise<void> {
   const server = normalizeServerUrl(serverValue);
   const api = new ApiClient(server);
   const authorization = await api.createDeviceAuthorization(deviceName, CLI_VERSION);
-  process.stdout.write(`Open ${authorization.verificationUri}\nUser code: ${authorization.userCode}\n`);
+  printPanel("Device authorization", [
+    ["Open", authorization.verificationUri, ["cyan", "underline"]],
+    ["User code", authorization.userCode, ["bold", "yellow"]],
+  ]);
   try { await openBrowser(authorization.verificationUri, { wait: false }); }
-  catch { process.stdout.write("Could not open a browser; use the verification URL on any device.\n"); }
+  catch { warning("Could not open a browser; use the verification URL on any device."); }
   const deadline = Date.now() + authorization.expiresIn * 1000;
-  while (Date.now() < deadline) {
-    await sleep(authorization.interval * 1000);
-    try {
-      const token = await api.pollDeviceAuthorization(authorization.deviceCode);
-      await updateLocalConfig((current) => ({ ...current, version: 1, server, token }), paths);
-      process.stdout.write(`Logged in as ${deviceName}.\n`);
-      return;
-    } catch (error) {
-      if (error instanceof CliApiError && ["AUTHORIZATION_PENDING", "SLOW_DOWN"].includes(error.code)) continue;
-      throw error;
+  const spinner = startSpinner(() => {
+    const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    return `Waiting for approval ${paint("dim", `(${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")} left)`, process.stderr)}`;
+  });
+  try {
+    while (Date.now() < deadline) {
+      await sleep(authorization.interval * 1000);
+      try {
+        const token = await api.pollDeviceAuthorization(authorization.deviceCode);
+        await updateLocalConfig((current) => ({ ...current, version: 1, server, token }), paths);
+        spinner.stop();
+        success(`Logged in as ${deviceName}.`);
+        return;
+      } catch (error) {
+        if (error instanceof CliApiError && ["AUTHORIZATION_PENDING", "SLOW_DOWN"].includes(error.code)) continue;
+        throw error;
+      }
     }
+  } finally {
+    spinner.stop();
   }
   throw new Error("Device authorization expired before approval.");
 }
@@ -122,7 +220,13 @@ async function login(args: Arguments, paths: LocalPaths): Promise<void> {
 async function listConfigSets(paths: LocalPaths, environment: NodeJS.ProcessEnv): Promise<void> {
   const config = await readLocalConfig(paths);
   const { server, token } = credentials(config, environment);
-  for (const profile of await new ApiClient(server, token).configSets()) process.stdout.write(`${profile.slug}\t${profile.name}\n`);
+  const configSets = await withSpinner("Loading config sets", () => new ApiClient(server, token).configSets());
+  if (configSets.length === 0) {
+    if (isRich()) info("No config sets are available to this token.");
+    return;
+  }
+  printHeading("Config sets", `${configSets.length} available`);
+  printTable(configSets.map((profile): Cell[] => [{ text: profile.slug, style: "cyan" }, profile.name]), { header: ["Slug", "Name"] });
 }
 
 async function pull(args: Arguments, paths: LocalPaths, environment: NodeJS.ProcessEnv): Promise<void> {
@@ -141,7 +245,7 @@ async function pull(args: Arguments, paths: LocalPaths, environment: NodeJS.Proc
   const options: PullOptions = {
     api,
     paths,
-    manifest: await api.manifest(profile, agents),
+    manifest: await withSpinner(`Fetching the latest ${profile} release`, () => api.manifest(profile, agents)),
     serverOrigin: new URL(server).origin,
     profile,
     requestedAgents: agents,
@@ -151,17 +255,16 @@ async function pull(args: Arguments, paths: LocalPaths, environment: NodeJS.Proc
     replaceSymlink,
     forceRemoveModified,
   };
-  const result = await applyRelease(options);
-  for (const action of result.actions) printAction(action);
-  process.stdout.write(`${dryRun ? "Dry run" : "Installed"} release ${result.releaseNumber}${result.backupId ? `; backup ${result.backupId}` : ""}.\n`);
+  const result = await withSpinner(dryRun ? "Planning changes" : "Installing files", () => applyRelease(options));
+  printPullResult(result, profile);
   // 附加安装在配置文件落盘之后执行；失败时已安装的配置保持不变，命令以错误退出。
-  const extras = await syncOmpExtras({
+  const extras = await withSpinner("Syncing OMP plugins and skill repositories", () => syncOmpExtras({
     api,
     manifest: options.manifest,
     ompHome: getAdapter("omp").resolveRoot("omp-home", clientContext(options)),
     dryRun,
-  });
-  for (const { kind, name, result: outcome } of extras) process.stdout.write(`${kind.padEnd(9)} ${name} ${outcome}\n`);
+  }));
+  printOmpExtras(extras);
 }
 
 async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.ProcessEnv): Promise<void> {
@@ -178,12 +281,20 @@ async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.Pr
   }
   const states = (await loadStates(paths)).filter((state) => state.profile === profile && state.serverOrigin === serverOrigin);
   if (states.length === 0) {
-    process.stdout.write("No local managed state exists for this profile.\n");
+    info("No local managed state exists for this profile.");
     return;
   }
-  process.stdout.write(`Server ${serverOrigin}\n`);
+  const rich = isRich();
+  if (rich) printHeading("Status", `${profile} · ${serverOrigin}`);
+  else process.stdout.write(`Server ${serverOrigin}\n`);
+  const totals: Record<FileState, number> = { clean: 0, modified: 0, missing: 0, conflict: 0 };
   for (const state of states) {
-    process.stdout.write(`${state.agentId}/${state.rootId} release=${state.releaseNumber} root=${state.resolvedRoot}\n`);
+    if (rich) {
+      printRichLine(`${paint("bold", state.agentId)}${paint("dim", "/")}${state.rootId}  ${paint("dim", `release #${state.releaseNumber} · ${displayPath(state.resolvedRoot)}`)}`);
+    } else {
+      process.stdout.write(`${state.agentId}/${state.rootId} release=${state.releaseNumber} root=${state.resolvedRoot}\n`);
+    }
+    const rows: Cell[][] = [];
     for (const file of state.files) {
       const adapter = getAdapter(state.agentId);
       const pathContext: ClientPathContext = {
@@ -196,36 +307,67 @@ async function status(args: Arguments, paths: LocalPaths, environment: NodeJS.Pr
         { root: state.rootId, relativePath: file.relativePath },
         pathContext,
       );
+      let fileState: FileState;
+      let note = "";
       try {
         const target = await inspectTarget(state.resolvedRoot, destination, false);
-        if (target.kind === "missing") {
-          process.stdout.write(`  missing ${file.relativePath}${file.sensitive ? " sensitive" : ""}\n`);
-          continue;
-        }
-        const digest = await sha256File(destination);
-        process.stdout.write(`  ${digest === file.installedSha256 ? "clean" : "modified"} ${file.relativePath}${file.sensitive ? " sensitive" : ""}\n`);
+        fileState = target.kind === "missing"
+          ? "missing"
+          : await sha256File(destination) === file.installedSha256 ? "clean" : "modified";
       } catch (error) {
-        process.stdout.write(`  conflict ${file.relativePath}${file.sensitive ? " sensitive" : ""} (${error instanceof Error ? error.message : "unsafe target"})\n`);
+        fileState = "conflict";
+        note = error instanceof Error ? error.message : "unsafe target";
+      }
+      totals[fileState] += 1;
+      if (rich) {
+        const { symbol, style } = FILE_STATES[fileState];
+        rows.push([
+          { text: `${symbol} ${fileState}`, style },
+          file.relativePath,
+          { text: file.sensitive ? "sensitive" : "", style: "magenta" },
+          { text: note, style: "dim" },
+        ]);
+      } else {
+        process.stdout.write(`  ${fileState} ${file.relativePath}${file.sensitive ? " sensitive" : ""}${note ? ` (${note})` : ""}\n`);
       }
     }
+    if (rich) {
+      printTable(rows, { indent: 4 });
+      process.stdout.write("\n");
+    }
   }
+  if (!rich) return;
+  const issues = (["modified", "missing", "conflict"] as const).filter((state) => totals[state] > 0);
+  if (issues.length === 0) success(`All ${totals.clean} managed files match their installed release.`);
+  else warning([`${totals.clean} clean`, ...issues.map((state) => `${totals[state]} ${state}`)].join(paint("dim", " · ")));
 }
 
 async function backups(args: Arguments, paths: LocalPaths): Promise<void> {
   const action = args.take("backups action");
   if (action === "list") {
     args.assertDone();
-    for (const backup of await listBackups(paths)) process.stdout.write(`${backup.id}\t${backup.profile}\trelease=${backup.releaseNumber}\t${backup.createdAt}\n`);
+    const records = await listBackups(paths);
+    if (records.length === 0) {
+      if (isRich()) info("No local backups.");
+      return;
+    }
+    printHeading("Backups", `${records.length} stored locally`);
+    printTable(records.map((backup): Cell[] => [
+      { text: backup.id, style: "cyan" },
+      backup.profile,
+      { text: `#${backup.releaseNumber}`, plain: `release=${backup.releaseNumber}` },
+      { text: formatTimestamp(backup.createdAt), plain: backup.createdAt, style: "dim" },
+    ]), { header: ["ID", "Profile", "Release", "Created"] });
     return;
   }
   const backupId = args.take("backup ID");
   args.assertDone();
   if (action === "restore") {
-    const restored = await restoreBackup(paths, backupId);
-    process.stdout.write(`Restored backup ${restored.id}.\n`);
+    const restored = await withSpinner(`Restoring backup ${backupId}`, () => restoreBackup(paths, backupId));
+    success(`Restored backup ${restored.id}.`);
   } else if (action === "delete") {
     await deleteBackup(paths, backupId);
-    process.stdout.write(`Deleted backup ${backupId}.\n`);
+    success(`Deleted backup ${backupId}.`);
   } else throw new Error(`Unknown backups action: ${action}`);
 }
 
@@ -234,7 +376,11 @@ async function roots(args: Arguments, paths: LocalPaths): Promise<void> {
   if (action === "list") {
     args.assertDone();
     const config = await readLocalConfig(paths);
-    for (const root of TargetRootId.options) process.stdout.write(`${root}\t${config.rootOverrides[root] ?? "default"}\n`);
+    printHeading("Target roots");
+    printTable(TargetRootId.options.map((root): Cell[] => {
+      const override = config.rootOverrides[root];
+      return [{ text: root, style: "cyan" }, override ? { text: displayPath(override), plain: override } : { text: "default", style: "dim" }];
+    }), { header: ["Root", "Path"] });
     return;
   }
   const root = TargetRootId.parse(args.take("root ID"));
@@ -243,7 +389,7 @@ async function roots(args: Arguments, paths: LocalPaths): Promise<void> {
     args.assertDone();
     assertAbsoluteRoot(root, path);
     await updateLocalConfig((current) => ({ ...current, rootOverrides: { ...current.rootOverrides, [root]: path } }), paths);
-    process.stdout.write(`Set ${root} to ${path}.\n`);
+    success(`Set ${root} to ${path}.`);
   } else if (action === "reset") {
     args.assertDone();
     await updateLocalConfig((current) => {
@@ -251,7 +397,7 @@ async function roots(args: Arguments, paths: LocalPaths): Promise<void> {
       delete rootOverrides[root];
       return { ...current, rootOverrides };
     }, paths);
-    process.stdout.write(`Reset ${root} to its adapter default.\n`);
+    success(`Reset ${root} to its adapter default.`);
   } else throw new Error(`Unknown roots action: ${action}`);
 }
 
@@ -268,7 +414,7 @@ export async function runCli(
   else if (command === "logout") {
     args.assertDone();
     await deleteStoredToken(paths);
-    process.stdout.write("Logged out locally.\n");
+    success("Logged out locally.");
   } else if (command === "config-sets") {
     args.assertDone();
     await listConfigSets(paths, environment);
@@ -282,14 +428,60 @@ export async function runCli(
   } else throw new Error(`Unknown command: ${command}`);
 }
 
+const COMMANDS: readonly { readonly name: string; readonly args: readonly string[]; readonly summary: string }[] = [
+  { name: "login", args: ["--server <url>", "[--name <device>]"], summary: "Approve this device in the browser and store a pull token" },
+  { name: "logout", args: [], summary: "Remove the locally stored token" },
+  { name: "config-sets", args: [], summary: "List config sets available to this token" },
+  {
+    name: "pull",
+    args: ["--profile <slug>", "[--agent <id>...]", "[--dry-run]", "[--target-root <root>=<path>]", "[--replace-symlink]", "[--force-remove-modified]"],
+    summary: "Install the latest release transactionally, with backups",
+  },
+  { name: "status", args: ["--profile <slug>"], summary: "Compare installed files with the recorded release" },
+  { name: "backups", args: ["list", "| restore <id>", "| delete <id>"], summary: "List, restore, or delete local backups" },
+  { name: "roots", args: ["list", "| set <root-id> <absolute-path>", "| reset <root-id>"], summary: "Show or override Agent target directories" },
+];
+
+const HELP_EXTRAS: readonly { readonly title: string; readonly entries: readonly (readonly [string, string])[] }[] = [
+  { title: "Options", entries: [["-h, --help", "Show this help"], ["-v, --version", "Print the CLI version"]] },
+  {
+    title: "Environment",
+    entries: [
+      ["AGENT_CONFIG_HUB_SERVER", "Server URL; overrides the stored login"],
+      ["AGENT_CONFIG_HUB_TOKEN", "Pull token; overrides the stored login"],
+    ],
+  },
+];
+
 export function usage(): string {
-  return [
-    "agent-config-hub login --server <url> [--name <device>]",
-    "agent-config-hub logout",
-    "agent-config-hub config-sets",
-    "agent-config-hub pull --profile <slug> [--agent <id>...] [--dry-run] [--target-root <root>=<path>] [--replace-symlink] [--force-remove-modified]",
-    "agent-config-hub status --profile <slug>",
-    "agent-config-hub backups list|restore <id>|delete <id>",
-    "agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>",
-  ].join("\n");
+  // 伪终端可能报告 0 列，回退到 100 列；限制在 60–120 列之间保证可读。
+  const width = Math.max(60, Math.min(process.stdout.columns || 100, 120));
+  const nameWidth = Math.max(...COMMANDS.map(({ name }) => name.length)) + 3;
+  const lines = [
+    "",
+    `  ${paint("cyan", symbols.brand)} ${paint("bold", "agent-config-hub")} ${paint("dim", `v${CLI_VERSION}`)}`,
+    `    ${paint("dim", "Pull immutable AgentConfigHub releases with transactional backups and crash recovery.")}`,
+    "",
+    `  ${paint("bold", "Usage")}`,
+    `    agent-config-hub ${paint("cyan", "<command>")} [options]`,
+    "",
+    `  ${paint("bold", "Commands")}`,
+  ];
+  const gutter = " ".repeat(4 + nameWidth);
+  for (const command of COMMANDS) {
+    // 参数按终端宽度折行，续行与首行参数左对齐；最短保留一个参数一行。
+    const argLines: string[] = [];
+    for (const arg of command.args) {
+      const last = argLines.at(-1);
+      if (last !== undefined && gutter.length + last.length + 1 + arg.length <= width) argLines[argLines.length - 1] = `${last} ${arg}`;
+      else argLines.push(arg);
+    }
+    const [first, ...rest] = [...argLines, paint("dim", command.summary)];
+    lines.push(`    ${paint(["bold", "cyan"], command.name.padEnd(nameWidth))}${first}`, ...rest.map((line) => `${gutter}${line}`));
+  }
+  const keyWidth = Math.max(...HELP_EXTRAS.flatMap(({ entries }) => entries.map(([key]) => key.length))) + 3;
+  for (const { title, entries } of HELP_EXTRAS) {
+    lines.push("", `  ${paint("bold", title)}`, ...entries.map(([key, description]) => `    ${paint("cyan", key.padEnd(keyWidth))}${paint("dim", description)}`));
+  }
+  return `${lines.join("\n")}\n\n`;
 }

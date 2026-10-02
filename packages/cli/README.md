@@ -91,4 +91,6 @@ agent-config-hub backups list|restore <id>|delete <id>
 agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 ```
 
+Output is styled (colors, tables, spinners) only when stdout is a terminal and follows `NO_COLOR` / `FORCE_COLOR`. Piped or redirected output stays plain text, tab-separated for list commands; spinners write to stderr only.
+
 Server deployment and architecture documentation: [AgentConfigHub](https://github.com/Lynricsy/AgentConfigHub).

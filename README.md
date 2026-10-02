@@ -72,6 +72,8 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 `login` performs browser-approved device pairing. `AGENT_CONFIG_HUB_SERVER` and `AGENT_CONFIG_HUB_TOKEN` override stored credentials for automation without placing the token in argv. A pull validates the immutable manifest, streams and hashes downloads, stages same-filesystem replacements, backs up overwritten/deleted managed files, and commits through a durable journal.
 
+In a terminal (stdout is a TTY) the CLI renders colored tables, a boxed device-authorization panel, and progress spinners, abbreviating home-directory paths as `~`; colors honor `NO_COLOR` / `FORCE_COLOR`. When stdout is piped or redirected it prints plain text; `pull`, `status`, and the tab-separated `config-sets`, `backups list`, and `roots list` output are unchanged so scripts keep working. Spinners only ever write to stderr.
+
 Every release records a minimum CLI version. OMP adapter revision 6 adds the `cortexkit-home` root and the `agent-config-hub.json` extras declaration, so every new release requires CLI `0.3.0`; older CLIs refuse before touching any file. The CLI requires an exact adapter revision match, so upgrade the CLI, deploy the new server, and republish before clients pull; releases published under OMP revision 5 cannot be installed by CLI `0.3.0`.
 
 ### OMP extras: plugins and skill repositories
