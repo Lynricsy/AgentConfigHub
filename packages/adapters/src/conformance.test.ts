@@ -285,6 +285,15 @@ it("manages OMP role prompt files consumed by the role-prompt extension", () => 
   })).toMatchObject({ format: "auto", reserved: false });
 });
 
+it("manages OMP custom task agent definitions", () => {
+  const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
+  // OMP 从 `<agent-dir>/agents/*.md` 发现用户级 task agent，该目录必须可托管。
+  expect(assertAllowedTarget(adapter, {
+    root: "omp-home",
+    relativePath: "agents/writer.md",
+  })).toMatchObject({ format: "auto", reserved: false });
+});
+
 it("does not flag real omp settings keys as unknown", async () => {
   const adapter = builtInAdapters.find(({ id }) => id === "omp")!;
   // 回归：schema snapshot 缺键曾导致真实设置键被误报 UNKNOWN_SCHEMA_KEY。

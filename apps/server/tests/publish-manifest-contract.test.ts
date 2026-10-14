@@ -56,12 +56,12 @@ describe("release manifest compatibility contract", () => {
       codex: 2,
       opencode: 2,
       pi: 2,
-      omp: 6,
+      omp: 7,
       grok: 2,
     });
-    expect(manifest.minCliVersion).toBe("0.3.0");
+    expect(manifest.minCliVersion).toBe("0.3.4");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.3.0" });
+      .toEqual({ floor: "0.3.4" });
     database.native.close();
   });
 
@@ -89,9 +89,9 @@ describe("release manifest compatibility contract", () => {
     const { manifest } = await publish.publish(configSet.id, revision);
 
     // 服务端使用统一的最低 CLI 版本，即使本次 release 不含 OMP 也不能跳过兼容闸门。
-    expect(manifest.minCliVersion).toBe("0.3.0");
+    expect(manifest.minCliVersion).toBe("0.3.4");
     expect(database.native.prepare("SELECT min_cli_version AS floor FROM releases").get())
-      .toEqual({ floor: "0.3.0" });
+      .toEqual({ floor: "0.3.4" });
     database.native.close();
   });
 
@@ -113,7 +113,7 @@ describe("release manifest compatibility contract", () => {
       });
       const publish = new PublishService(database, blobs, new SecretBindingResolver(database, masterKey));
       const { releaseId, manifest } = await publish.publish(configSet.id, revision);
-      expect(manifest.minCliVersion).toBe("0.3.0");
+      expect(manifest.minCliVersion).toBe("0.3.4");
       const file = manifest.files.find(({ target }) => target.relativePath === "omp-notify.json")!;
       expect(file.contentSha256).toBe(blob.sha256);
       const slot = file.deviceNameSlots![0]!;
@@ -132,7 +132,7 @@ describe("release manifest compatibility contract", () => {
         });
         expect(response.statusCode).toBe(200);
         const restored = response.json<typeof manifest>();
-        expect(restored.minCliVersion).toBe("0.3.0");
+        expect(restored.minCliVersion).toBe("0.3.4");
         const restoredFile = restored.files.find(({ target }) => target.relativePath === "omp-notify.json")!;
         expect(restoredFile.deviceNameSlots).toEqual(file.deviceNameSlots);
       } finally { await server.close(); }

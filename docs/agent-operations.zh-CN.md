@@ -136,7 +136,7 @@ adapters = api("GET", "/api/v1/adapters")
 
 以实时 `GET /api/v1/adapters` 的 `roots`、`surfaces` 为准。路径只能使用 `/`，不能包含绝对路径、`..`、空段或 Windows 非法名称。
 
-OMP 常用受管文件包括 `.env`、`config.yml`、`models.yml`、`mcp.json`、`keybindings.yml`/`.json`，以及 `rules/`、`role-prompts/`、`commands/`、`skills/`、`extensions/` 等目录下的文件。`agent.db`、会话、缓存、`node_modules` 等运行时状态不能上传。标有 `reserved: true` 的文件由共享资源生成；OMP 的 `AGENTS.md` 要按第 6 节编辑，不能作为普通文件上传。
+OMP 常用受管文件包括 `.env`、`config.yml`、`models.yml`、`mcp.json`、`keybindings.yml`/`.json`，以及 `rules/`、`role-prompts/`、`agents/`、`commands/`、`skills/`、`extensions/` 等目录下的文件。`agent.db`、会话、缓存、`node_modules` 等运行时状态不能上传。标有 `reserved: true` 的文件由共享资源生成；OMP 的 `AGENTS.md` 要按第 6 节编辑，不能作为普通文件上传。
 
 OMP adapter revision 5 起增加根目录 `omp-notify.json`，按 JSON 校验，Telegram 凭据可使用第 5 节的完整标量 secret 占位符。
 
@@ -144,6 +144,8 @@ OMP adapter revision 6（CLI `0.3.0`）新增：
 
 - `cortexkit-home` 根，仅托管 Magic Context 用户配置 `magic-context.jsonc`（JSONC），target 为 `{"root":"cortexkit-home","relativePath":"magic-context.jsonc"}`，MIME `application/jsonc`。embedding `api_key` 等密钥必须改成完整标量 `{{secret:SLOT}}` 占位符，按第 5 节绑定凭据，不能明文上传。
 - `omp-home/agent-config-hub.json` 附加安装声明（结构见 README「OMP 附加安装」）：`plugins` 是 npm 包规格，客户端每次 pull 后执行 `omp plugin install`；`skillRepositories` 是 `https://` Git 仓库，客户端克隆或快进到 `<omp-home>/skill-repositories/<name>`。声明由服务端按 schema 校验，未知键、`-` 开头的规格或 ref、非 https 或内嵌凭据的 URL 都是阻断错误。要让 OMP 读取仓库里的技能，还需在同一配置组的 `config.yml` 中加入 `skills.customDirectories`，例如 `~/.omp/agent/skill-repositories/hyperskills/skills`。
+
+OMP adapter revision 7（CLI `0.3.4`）新增 `omp-home/agents/**`，用于托管 OMP 自定义 task agent（如 `agents/writer.md`，MIME `text/markdown`）。agent frontmatter 里的 `model: "@role"` 别名要在同一配置组的 `config.yml` `modelRoles` 中有对应映射。
 
 CLI 要求适配器 revision 精确匹配，操作前以线上 `/api/v1/adapters` 为准，旧部署不接受这些路径。应先准备新版 CLI、部署新版服务端并发布新 Release，再让客户端拉取；不要让新版 CLI 直接拉取旧 revision 的 Release。
 
@@ -282,7 +284,7 @@ credential_id = credential["id"]
 
 设备变量仅支持 JSON、JSONC、YAML、TOML、dotenv 的完整字符串值。不能使用 `"前缀{{device:name}}"`、变量键名、变量注释或 `{{device:hostname}}` 等未知变量。与 secret 变量同文件时，发布阶段只记录原始模板中的设备位置，秘密值或设备名称里的占位符文本都保持字面值，不递归解释。
 
-部署新版服务端（含数据库迁移 `0004_device_name_slots`）后再发布模板。自 CLI `0.3.0`（OMP adapter revision 6）起，所有新 Release 不论是否含设备变量，最低 CLI 版本都是 `0.3.0`。发布内容及原始 hash 不因设备变化：文件清单可附带 `deviceNameSlots`，每项包含秘密替换后 UTF-16 `start`/`end` 偏移与 `format`。CLI 验证原始大小/hash 后安全渲染，dry-run 也执行校验但不改目标；状态和备份对应实际安装字节。重复 pull 应为 unchanged，status 应为 clean，同一 Release 改用另一设备令牌会计划替换设备名。
+部署新版服务端（含数据库迁移 `0004_device_name_slots`）后再发布模板。所有新 Release 不论是否含设备变量，都使用统一的最低 CLI 版本（当前为 `0.3.4`，对应 OMP adapter revision 7）。发布内容及原始 hash 不因设备变化：文件清单可附带 `deviceNameSlots`，每项包含秘密替换后 UTF-16 `start`/`end` 偏移与 `format`。CLI 验证原始大小/hash 后安全渲染，dry-run 也执行校验但不改目标；状态和备份对应实际安装字节。重复 pull 应为 unchanged，status 应为 clean，同一 Release 改用另一设备令牌会计划替换设备名。
 
 需要该变量的配置不能用 automation token 验证安装，请使用经用户审批的设备令牌；不含设备变量的配置仍可使用自动化令牌。dotenv 使用保留原文的引号，不当作 shell 代码；无法无损表达的名称（冲突引号组合、回车、NUL）会在写任何目标前明确失败。JSON/JSONC/YAML/TOML 会转义引号、反斜杠和控制字符。
 

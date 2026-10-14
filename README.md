@@ -74,7 +74,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 In a terminal (stdout is a TTY) the CLI renders colored tables, a boxed device-authorization panel, and progress spinners, abbreviating home-directory paths as `~`; colors honor `NO_COLOR` / `FORCE_COLOR`. When stdout is piped or redirected it prints plain text; `pull`, `status`, and the tab-separated `config-sets`, `backups list`, and `roots list` output are unchanged so scripts keep working. Spinners only ever write to stderr.
 
-Every release records a minimum CLI version. OMP adapter revision 6 adds the `cortexkit-home` root and the `agent-config-hub.json` extras declaration, so every new release requires CLI `0.3.0`; older CLIs refuse before touching any file. The CLI requires an exact adapter revision match, so upgrade the CLI, deploy the new server, and republish before clients pull; releases published under OMP revision 5 cannot be installed by CLI `0.3.0`.
+Every release records a minimum CLI version. OMP adapter revision 6 adds the `cortexkit-home` root and the `agent-config-hub.json` extras declaration; revision 7 adds the `agents` directory for custom task agents. Every new release requires CLI `0.3.4`; older CLIs refuse before touching any file. The CLI requires an exact adapter revision match, so upgrade the CLI, deploy the new server, and republish before clients pull; releases published under an older OMP revision cannot be installed by a newer CLI.
 
 ### OMP extras: plugins and skill repositories
 
@@ -100,7 +100,7 @@ Point OMP at the cloned skills from the managed `config.yml`, e.g. `skills.custo
 
 ## Supported Agents
 
-The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages, including a root `.env` file with dotenv validation. OMP also covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, `omp-notify.json`, `agent-config-hub.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `instructions`, `hooks`, `tools`, and `extensions` directories.
+The built-in adapter set targets Claude Code, OpenAI Codex, OpenCode, Pi Coding Agent, Oh My Pi (OMP), and Grok Build. Each adapter declares the exact surfaces it manages, including a root `.env` file with dotenv validation. OMP also covers `config.yml`, `models.yml`, `keybindings.yml`/`.json`, `mcp.json`, `omp-notify.json`, `agent-config-hub.json`, the `*.md` instruction files, and the `skills`, `commands`, `rules`, `prompts`, `role-prompts`, `agents`, `instructions`, `hooks`, `tools`, and `extensions` directories.
 
 OMP owns a second root, `cortexkit-home` (default `~/.config/cortexkit`), that manages only the Magic Context user config `magic-context.jsonc`. It accepts full-scalar `{{secret:SLOT_NAME}}` placeholders such as the embedding `api_key`. Devices that set `XDG_CONFIG_HOME` should run `agent-config-hub roots set cortexkit-home "$XDG_CONFIG_HOME/cortexkit"`.
 
@@ -108,7 +108,7 @@ OMP owns a second root, `cortexkit-home` (default `~/.config/cortexkit`), that m
 
 设备登记名称可作为完整字符串变量 `{{device:name}}` 使用，例如 OMP `omp-notify.json` 中的 `"device_name": "{{device:name}}"`。它取自当前拉取令牌对应设备注册时填写的名称，不是本机 hostname，也不是自动化令牌标签；环境变量覆盖令牌时同样使用该令牌的鉴权身份。只支持 JSON/JSONC/YAML/TOML/dotenv 的完整字符串值，禁止拼接、键名、注释和未知设备变量。
 
-Releases with device variables no longer have a separate floor: every new release requires CLI `0.3.0`. The CLI verifies the immutable original download's size and SHA-256 before replacing the frozen exact positions; placeholders inside secret values or device names are never expanded recursively. Plans, install state, repeated pulls, and status use the hash of the bytes actually written. Automation tokens can pull configs without device variables but fail explicitly when a device name is required. Names that dotenv cannot represent losslessly (conflicting quote combinations, carriage returns, NUL) are rejected before any target is written; they are never silently renamed.
+Releases with device variables no longer have a separate floor: every new release requires CLI `0.3.4`. The CLI verifies the immutable original download's size and SHA-256 before replacing the frozen exact positions; placeholders inside secret values or device names are never expanded recursively. Plans, install state, repeated pulls, and status use the hash of the bytes actually written. Automation tokens can pull configs without device variables but fail explicitly when a device name is required. Names that dotenv cannot represent losslessly (conflicting quote combinations, carriage returns, NUL) are rejected before any target is written; they are never silently renamed.
 
 ## Architecture
 

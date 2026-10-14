@@ -36,8 +36,8 @@ function manifest() {
     enabledAgents: ["omp"],
     selection: "all-enabled",
     includedAgents: ["omp"],
-    minCliVersion: "0.3.0",
-    adapterRevisions: { "claude-code": 2, codex: 2, opencode: 2, pi: 2, omp: 6, grok: 2 },
+    minCliVersion: "0.3.4",
+    adapterRevisions: { "claude-code": 2, codex: 2, opencode: 2, pi: 2, omp: 7, grok: 2 },
     files: [{
       fileId: "extras",
       agentId: "omp",

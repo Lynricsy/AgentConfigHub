@@ -74,7 +74,7 @@ agent-config-hub roots list|set <root-id> <absolute-path>|reset <root-id>
 
 在终端（stdout 为 TTY）中，CLI 以彩色表格、圆角面板和加载动画展示结果，路径中的家目录缩写为 `~`；颜色遵循 `NO_COLOR` / `FORCE_COLOR`。stdout 被管道或重定向时输出纯文本：`pull`、`status` 以及制表符分隔的 `config-sets`、`backups list`、`roots list` 与旧版逐字一致，可继续供脚本解析；加载动画只写入 stderr。
 
-每个发布版本都会记录最低 CLI 版本。OMP adapter revision 6 新增 `cortexkit-home` 根和 `agent-config-hub.json` 附加安装声明，所有新发布要求 CLI `0.3.0` 及以上；旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配：先升级 CLI、部署新版服务端并重新发布，再让客户端拉取；OMP revision 5 时期发布的 Release 不能用 CLI `0.3.0` 安装。
+每个发布版本都会记录最低 CLI 版本。OMP adapter revision 6 新增 `cortexkit-home` 根和 `agent-config-hub.json` 附加安装声明，revision 7 新增自定义 task agent 的 `agents` 目录；所有新发布要求 CLI `0.3.4` 及以上，旧 CLI 会在改动任何文件前拒绝拉取。CLI 要求适配器 revision 精确匹配：先升级 CLI、部署新版服务端并重新发布，再让客户端拉取；旧 OMP revision 时期发布的 Release 不能用新版 CLI 安装。
 
 ### OMP 附加安装：插件与技能仓库
 
@@ -100,7 +100,7 @@ OMP 配置可发布 `omp-home/agent-config-hub.json`。pull 成功写入 Release
 
 ## 支持的 Agent
 
-内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。每个适配器都显式声明自己管理的文件面，包括经过 dotenv 校验的根目录 `.env` 文件。OMP 还覆盖 `config.yml`、`models.yml`、`keybindings.yml`/`.json`、`mcp.json`、`omp-notify.json`、`agent-config-hub.json`、各 `*.md` 指令文件，以及 `skills`、`commands`、`rules`、`prompts`、`role-prompts`、`instructions`、`hooks`、`tools`、`extensions` 目录。
+内置适配器目标为 Claude Code、OpenAI Codex、OpenCode、Pi Coding Agent、Oh My Pi（OMP）和 Grok Build。每个适配器都显式声明自己管理的文件面，包括经过 dotenv 校验的根目录 `.env` 文件。OMP 还覆盖 `config.yml`、`models.yml`、`keybindings.yml`/`.json`、`mcp.json`、`omp-notify.json`、`agent-config-hub.json`、各 `*.md` 指令文件，以及 `skills`、`commands`、`rules`、`prompts`、`role-prompts`、`agents`、`instructions`、`hooks`、`tools`、`extensions` 目录。
 
 OMP 还拥有第二个根 `cortexkit-home`（默认 `~/.config/cortexkit`），只托管 Magic Context 用户配置 `magic-context.jsonc`，可用完整标量 `{{secret:SLOT_NAME}}` 放置 embedding `api_key` 等密钥。设置了 `XDG_CONFIG_HOME` 的设备应执行 `agent-config-hub roots set cortexkit-home "$XDG_CONFIG_HOME/cortexkit"`。
 
@@ -108,7 +108,7 @@ OMP 还支持根目录 `omp-notify.json`，按 JSON 校验，可使用完整标�
 
 设备登记名称可作为完整字符串变量 `{{device:name}}` 使用，例如 OMP `omp-notify.json` 中的 `"device_name": "{{device:name}}"`。它取自当前拉取令牌对应设备注册时填写的名称，不是本机 hostname，也不是自动化令牌标签；环境变量覆盖令牌时同样使用该令牌的鉴权身份。只支持 JSON/JSONC/YAML/TOML/dotenv 的完整字符串值，禁止拼接、键名、注释和未知设备变量。
 
-含设备变量的 Release 不再单独设置下限：所有新 Release 都要求 CLI `0.3.0`。CLI 先校验不可变原始下载的大小和 SHA-256，再按发布时冻结的精确位置替换；秘密值和设备名内的占位符不会递归展开。计划、安装状态、重复 pull 和 status 使用实际落盘字节的哈希。自动化令牌可以拉取无设备变量的配置，但需要设备名时明确失败。dotenv 无法无损表达的名称（如冲突引号组合、回车或 NUL）会在写目标前拒绝；不会偷偷改名。
+含设备变量的 Release 不再单独设置下限：所有新 Release 都要求 CLI `0.3.4`。CLI 先校验不可变原始下载的大小和 SHA-256，再按发布时冻结的精确位置替换；秘密值和设备名内的占位符不会递归展开。计划、安装状态、重复 pull 和 status 使用实际落盘字节的哈希。自动化令牌可以拉取无设备变量的配置，但需要设备名时明确失败。dotenv 无法无损表达的名称（如冲突引号组合、回车或 NUL）会在写目标前拒绝；不会偷偷改名。
 
 ## 架构
 

@@ -105,7 +105,7 @@ const definitions: readonly AdapterDefinition[] = [
   },
   {
     id: "omp",
-    revision: 6,
+    revision: 7,
     roots: ["omp-home", "cortexkit-home"],
     // cortexkit-home 是 Magic Context 的用户级配置目录；设置了 XDG_CONFIG_HOME 的设备用 roots set 覆盖。
     defaults: { "omp-home": [".omp", "agent"], "cortexkit-home": [".config", "cortexkit"] },
@@ -122,7 +122,7 @@ const definitions: readonly AdapterDefinition[] = [
       surface("cortexkit-home", "magic-context.jsonc", "jsonc"),
       surface("omp-home", "AGENTS.md", "markdown", true),
       ...["RULES.md", "SYSTEM.md", "APPEND_SYSTEM.md", "TITLE_SYSTEM.md"].map((path) => surface("omp-home", path, "markdown")),
-      ...["skills", "commands", "rules", "prompts", "role-prompts", "instructions", "hooks", "tools", "extensions"].map((directory) =>
+      ...["skills", "commands", "rules", "prompts", "role-prompts", "agents", "instructions", "hooks", "tools", "extensions"].map((directory) =>
         surface("omp-home", `${directory}/**`, "auto")),
     ],
   },

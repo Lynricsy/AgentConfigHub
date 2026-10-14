@@ -26,9 +26,9 @@ import { RevisionConflictError } from "./draft-revision.js";
 import { SecretBindingResolver, type ResolvedSecret } from "./secret-binding-resolver.js";
 
 // OMP adapter revision 6 新增 cortexkit-home 根、magic-context.jsonc 与 agent-config-hub.json 附加安装声明；
-// 旧 CLI 不识别该契约（也不会执行附加安装），因此任何新 release 都必须在写文件前拒绝旧版本。
-// 该下限高于设备变量所需的 0.2.4，因此不再区分是否含设备变量。
-const MIN_CLI_VERSION = "0.3.0";
+// revision 7 新增 agents/ 目录。旧 CLI 不识别新契约，因此任何新 release 都必须在写文件前拒绝旧版本，
+// 并给出比 adapter revision mismatch 更明确的升级提示。该下限高于设备变量所需的 0.2.4，不再区分是否含设备变量。
+const MIN_CLI_VERSION = "0.3.4";
 
 interface ConfigSetRow {
   id: string;
